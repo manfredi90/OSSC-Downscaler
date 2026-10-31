@@ -55,6 +55,10 @@ module linebuf_top (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
+    // layout 3 (YCbCr 4:2:2): words per line, number of lines, read base
+    input [9:0] lb_stride,
+    input [4:0] lb_slots,
+    input [12:0] lb_rd_base,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
     output [7:0] B_linebuf,
@@ -256,54 +260,104 @@ end else begin // EMIF_ENABLE
 
 reg [5:0] ypos_wraddr;
 reg [10:0] ypos_prev;
-reg [10:0] xpos_wraddr;
-reg [23:0] linebuf_wrdata;
+reg [12:0] linebuf_wraddr_r;
+reg [31:0] linebuf_wrdata;
 reg linebuf_wren;
 
-// 8192-pixel RAM shared by all layouts. Deeper layouts absorb the read/write
-// drift of a non-integer output line period (e.g. 750 input lines -> 262).
-reg [12:0] linebuf_wraddr, linebuf_rdaddr;
+// 8192 x 32 RAM shared by all layouts. Layouts 0-2 store one RGB pixel per
+// word (2 x 2048, 8 x 1024, 16 x 512 pixels); layout 3 stores two pixels per
+// word in YCbCr 4:2:2 {Y0, Y1, Cb, Cr} with a runtime line stride (lb_stride
+// words per line, lb_slots lines). Deeper layouts absorb the read/write drift
+// of a non-integer output line period (e.g. 750 input lines -> 262).
+wire lb422 = (lb_layout == 2'h3);
+reg [12:0] linebuf_rdaddr;
 reg wr_x_ok;
 always @(*) begin
     case (lb_layout)
         2'h1: begin
-            linebuf_wraddr = {ypos_wraddr[2:0], xpos_wraddr[9:0]};
             linebuf_rdaddr = {ypos_lb[2:0], xpos_lb[9:0]};
             wr_x_ok = (xpos_i[10] == 1'b0);
         end
         2'h2: begin
-            linebuf_wraddr = {ypos_wraddr[3:0], xpos_wraddr[8:0]};
             linebuf_rdaddr = {ypos_lb[3:0], xpos_lb[8:0]};
             wr_x_ok = (xpos_i[10:9] == 2'b00);
         end
+        2'h3: begin
+            linebuf_rdaddr = lb_rd_base + {3'h0, xpos_lb[10:1]};
+            wr_x_ok = 1'b1;
+        end
         default: begin
-            linebuf_wraddr = {1'b0, ypos_wraddr[0], xpos_wraddr[10:0]};
             linebuf_rdaddr = {1'b0, ypos_lb[0], xpos_lb[10:0]};
             wr_x_ok = 1'b1;
         end
     endcase
 end
 
+wire [31:0] linebuf_q;
 
 linebuf linebuf_rgb (
     .data(linebuf_wrdata),
     .rdaddress(linebuf_rdaddr),
     .rdclock(PCLK_OUT_i),
     .rdclocken(lb_enable),
-    .wraddress(linebuf_wraddr),
+    .wraddress(linebuf_wraddr_r),
     .wrclock(PCLK_CAP_i),
     .wren(linebuf_wren),
     .wrclocken(lb_enable),
-    .q({R_linebuf, G_linebuf, B_linebuf})
+    .q(linebuf_q)
 );
+
+// ---------------------------------------------------------------------------
+// Read side (output clock): layout 3 is converted back to RGB. Both paths
+// have the same latency (2 clocks after the RAM output); see PP_LINEBUF_LENGTH
+// in scanconverter.
+// ---------------------------------------------------------------------------
+reg [1:0] rd_x0_d;
+reg rd_x0;
+reg [7:0] o_Y;
+reg signed [9:0] o_cb, o_cr;
+reg signed [17:0] o_rt, o_gt, o_bt;
+reg [23:0] o_raw1, o_raw2;
+reg [7:0] o_R, o_G, o_B;
+reg o_422_1;
+wire signed [9:0] cb_s = $signed({2'b00, linebuf_q[15:8]}) - 10'sd128;
+wire signed [9:0] cr_s = $signed({2'b00, linebuf_q[7:0]}) - 10'sd128;
+wire signed [10:0] o_Rs = $signed({3'b000, o_Y}) + $signed(o_rt[17:8]);
+wire signed [10:0] o_Gs = $signed({3'b000, o_Y}) + $signed(o_gt[17:8]);
+wire signed [10:0] o_Bs = $signed({3'b000, o_Y}) + $signed(o_bt[17:8]);
+function [7:0] clamp8;
+    input signed [10:0] v;
+    clamp8 = v[10] ? 8'h00 : (|v[9:8] ? 8'hff : v[7:0]);
+endfunction
+
+always @(posedge PCLK_OUT_i) begin
+    // pixel parity follows the read address through the RAM (2 clocks)
+    rd_x0_d <= {rd_x0_d[0], xpos_lb[0]};
+    // conversion stage 1: R = Y + 1.402 Cr, G = Y - 0.344 Cb - 0.714 Cr, B = Y + 1.772 Cb
+    o_Y <= rd_x0_d[1] ? linebuf_q[23:16] : linebuf_q[31:24];
+    o_rt <= cr_s * 18'sd359;
+    o_gt <= -(cb_s * 18'sd88) - (cr_s * 18'sd183);
+    o_bt <= cb_s * 18'sd454;
+    o_raw1 <= linebuf_q[23:0];
+    o_422_1 <= lb422;
+    // conversion stage 2
+    if (o_422_1)
+        {o_R, o_G, o_B} <= {clamp8(o_Rs), clamp8(o_Gs), clamp8(o_Bs)};
+    else
+        {o_R, o_G, o_B} <= o_raw1;
+end
+
+assign {R_linebuf, G_linebuf, B_linebuf} = {o_R, o_G, o_B};
 
 // ---------------------------------------------------------------------------
 // Downscaler write path
 //   stage A: ADC sample history
 //   stage B: horizontal sums
-//   stage 1: horizontal average, blend RAM read data
-//   stage 2: blend (accumulate), blend RAM write
-//   stage 3: group average, line buffer write
+//   stage 1: horizontal average -> pixel
+//   stage U0: storage unit: RGB pixel, or YCbCr 4:2:2 pixel pair (layout 3,
+//             two extra stages C1/C2 before it); blend RAM read
+//   stage U1: blend (accumulate), blend RAM write
+//   stage U2: group average, line buffer write
 // ---------------------------------------------------------------------------
 wire ds_mode = (ds_vdec != 2'h0);
 reg [1:0] in_field_sync;
@@ -323,6 +377,7 @@ reg ds_first, ds_inblend;   // per line: first line of the blend window / inside
 wire [10:0] grp_start = {5'h0, ds_vstart};
 wire [10:0] first_store = grp_start + {9'h0, st_gpos};
 wire [1:0] next_gpos = (ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 2'h1);
+wire [5:0] lb_num = lb422 ? {1'b0, lb_slots} : NUM_LINE_BUFFERS;
 
 // stages A/B: horizontal filter
 reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b, R_c, G_c, B_c;
@@ -350,14 +405,13 @@ wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? h3R[16:
 wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? h3G[16:9] : (hf25 ? h25G[17:10] : Gr_b));
 wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? h3B[16:9] : (hf25 ? h25B[17:10] : Br_b));
 
-// blend accumulator: one line, 9 bits per channel
-reg [26:0] acc_mem [0:1023] /* synthesis ramstyle = "M9K" */;
-reg [26:0] acc_q;
-
 // stage 1 registers
 reg [7:0] R_1, G_1, B_1;
 reg [10:0] x_1;
-reg v_1, store_1, first_1, inblend_1;
+reg v_1;
+
+// line buffer base address of the line being written (layout 3)
+reg [12:0] wr_base;
 
 always @(posedge PCLK_CAP_i) begin
     // stage A
@@ -400,10 +454,11 @@ always @(posedge PCLK_CAP_i) begin
         // stock: every input line goes to the next buffer
         ds_store <= 1'b1;
         ds_first <= 1'b1;
+        ds_inblend <= 1'b0;
         if (ypos_i == 0) begin
             ypos_wraddr <= 0;
         end else if (ypos_i != ypos_prev) begin
-            if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+            if (ypos_wraddr == lb_num-1'b1)
                 ypos_wraddr <= 0;
             else
                 ypos_wraddr <= ypos_wraddr + 1'b1;
@@ -418,7 +473,7 @@ always @(posedge PCLK_CAP_i) begin
             ds_store <= 1'b1;
         end else if ((ypos_i > first_store) && (next_gpos == st_gpos)) begin
             ds_store <= 1'b1;
-            if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+            if (ypos_wraddr == lb_num-1'b1)
                 ypos_wraddr <= 0;
             else
                 ypos_wraddr <= ypos_wraddr + 1'b1;
@@ -430,59 +485,114 @@ always @(posedge PCLK_CAP_i) begin
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
     end
     ypos_prev <= ypos_i;
+    // (changes during horizontal blanking only, long before the first write)
+    wr_base <= ypos_wraddr * lb_stride;
 
     // stage B -> 1
-    acc_q <= acc_mem[x_b[9:0]];
     R_1 <= R_h;
     G_1 <= G_h;
     B_1 <= B_h;
     x_1 <= x_b;
     v_1 <= v_b;
-    store_1 <= ds_store;
-    first_1 <= ds_first;
-    inblend_1 <= ds_inblend;
 end
 
-// stage 1: accumulate (adders only)
-wire [9:0] sR = {1'b0, acc_q[26:18]} + {2'b0, R_1};
-wire [9:0] sG = {1'b0, acc_q[17:9]}  + {2'b0, G_1};
-wire [9:0] sB = {1'b0, acc_q[8:0]}   + {2'b0, B_1};
+// YCbCr 4:2:2 (layout 3): BT.601 full range, 8.8 fixed point
+reg [15:0] cy_Y;
+reg [16:0] cy_Cb, cy_Cr;
+reg [10:0] x_c1;
+reg v_c1;
+reg [7:0] p_Y0, p_Cb0, p_Cr0;
+wire [7:0] c2_Y = cy_Y[15:8] + cy_Y[7];
+wire [7:0] c2_Cb = cy_Cb[15:8];
+wire [7:0] c2_Cr = cy_Cr[15:8];
+wire [8:0] c2_Cbs = {1'b0, p_Cb0} + {1'b0, c2_Cb};
+wire [8:0] c2_Crs = {1'b0, p_Cr0} + {1'b0, c2_Cr};
 
-// stage 2 registers
-reg [9:0] sR_2, sG_2, sB_2;
-reg [7:0] R_2, G_2, B_2;
-reg [10:0] x_2;
-reg v_2, store_2, blended_2;
+// storage unit stream: 4 x 8-bit channels
+reg [31:0] u0, u1;
+reg [10:0] ua0, ua1;
+reg uv0, uv1;
+reg ublend1;
+
+// blend accumulator: one line of units, 9 bits per channel (RGB: 768
+// pixels, 4:2:2: 768 pixel pairs)
+reg [35:0] acc_mem [0:767] /* synthesis ramstyle = "M9K" */;
+reg [35:0] acc_q;
+
+always @(posedge PCLK_CAP_i) begin
+    // C1: color space conversion
+    cy_Y  <= 16'd77*R_1 + 16'd150*G_1 + 16'd29*B_1;
+    cy_Cb <= 17'd32768 + 17'd128*B_1 - 17'd43*R_1 - 17'd85*G_1;
+    cy_Cr <= 17'd32768 + 17'd128*R_1 - 17'd107*G_1 - 17'd21*B_1;
+    x_c1 <= x_1;
+    v_c1 <= v_1;
+
+    // C2 / U0: storage unit
+    if (lb422) begin
+        if (v_c1 & ~x_c1[0])
+            {p_Y0, p_Cb0, p_Cr0} <= {c2_Y, c2_Cb, c2_Cr};
+        u0 <= {p_Y0, c2_Y, c2_Cbs[8:1], c2_Crs[8:1]};
+        ua0 <= {1'b0, x_c1[10:1]};
+        uv0 <= v_c1 & x_c1[0] & (x_c1[10:1] < lb_stride);
+    end else begin
+        u0 <= {R_1, G_1, B_1, 8'h0};
+        ua0 <= x_1;
+        uv0 <= v_1;
+    end
+
+    // U0 -> U1 (blend RAM read)
+    acc_q <= acc_mem[ua0[9:0]];
+    u1 <= u0;
+    ua1 <= ua0;
+    uv1 <= uv0;
+end
+
+// U1: accumulate (adders only)
+wire [9:0] s0 = {1'b0, acc_q[35:27]} + {2'b0, u1[31:24]};
+wire [9:0] s1 = {1'b0, acc_q[26:18]} + {2'b0, u1[23:16]};
+wire [9:0] s2 = {1'b0, acc_q[17:9]}  + {2'b0, u1[15:8]};
+wire [9:0] s3 = {1'b0, acc_q[8:0]}   + {2'b0, u1[7:0]};
+
+// U2 registers
+reg [9:0] s0_2, s1_2, s2_2, s3_2;
+reg [31:0] u2;
+reg [10:0] ua2;
+reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
-    if (v_1 & inblend_1 & ~store_1)
-        acc_mem[x_1[9:0]] <= first_1 ? {1'b0, R_1, 1'b0, G_1, 1'b0, B_1} : {sR[8:0], sG[8:0], sB[8:0]};
+    if (uv1 & ds_inblend & ~ds_store & (ua1 < 11'd768))
+        acc_mem[ua1[9:0]] <= ds_first ? {1'b0, u1[31:24], 1'b0, u1[23:16], 1'b0, u1[15:8], 1'b0, u1[7:0]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]};
 
-    // stage 1 -> 2
-    {sR_2, sG_2, sB_2} <= {sR, sG, sB};
-    {R_2, G_2, B_2} <= {R_1, G_1, B_1};
-    x_2 <= x_1;
-    v_2 <= v_1;
-    store_2 <= store_1;
-    blended_2 <= inblend_1 & ~first_1;
+    {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
+    u2 <= u1;
+    ua2 <= ua1;
+    uv2 <= uv1 & ds_store;
+    blended_2 <= ds_inblend & ~ds_first;
 end
 
-// stage 2: average of the blend window (2 lines: >>1, 3 lines: *171>>9 ~ /3)
-wire [17:0] dR = sR_2 * 8'd171;
-wire [17:0] dG = sG_2 * 8'd171;
-wire [17:0] dB = sB_2 * 8'd171;
-wire [7:0] bR = (n_blend == 2'h2) ? sR_2[8:1] : dR[16:9];
-wire [7:0] bG = (n_blend == 2'h2) ? sG_2[8:1] : dG[16:9];
-wire [7:0] bB = (n_blend == 2'h2) ? sB_2[8:1] : dB[16:9];
+// U2: average of the blend window (2 lines: >>1, 3 lines: *171>>9 ~ /3)
+wire [17:0] d0 = s0_2 * 8'd171;
+wire [17:0] d1 = s1_2 * 8'd171;
+wire [17:0] d2 = s2_2 * 8'd171;
+wire [17:0] d3 = s3_2 * 8'd171;
+wire [7:0] b0 = (n_blend == 2'h2) ? s0_2[8:1] : d0[16:9];
+wire [7:0] b1 = (n_blend == 2'h2) ? s1_2[8:1] : d1[16:9];
+wire [7:0] b2 = (n_blend == 2'h2) ? s2_2[8:1] : d2[16:9];
+wire [7:0] b3 = (n_blend == 2'h2) ? s3_2[8:1] : d3[16:9];
+wire [31:0] u2_out = blended_2 ? {b0, b1, b2, b3} : u2;
 
 always @(posedge PCLK_CAP_i) begin
-    // stage 2 -> 3: line buffer write
-    xpos_wraddr <= x_2;
-    linebuf_wrdata <= blended_2 ? {bR, bG, bB} : {R_2, G_2, B_2};
-    linebuf_wren <= v_2 & store_2;
+    // U2 -> line buffer write
+    case (lb_layout)
+        2'h1: linebuf_wraddr_r <= {ypos_wraddr[2:0], ua2[9:0]};
+        2'h2: linebuf_wraddr_r <= {ypos_wraddr[3:0], ua2[8:0]};
+        2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua2};
+        default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua2};
+    endcase
+    linebuf_wrdata <= lb422 ? u2_out : {8'h0, u2_out[31:8]};
+    linebuf_wren <= uv2;
 end
-
 
 end
 endgenerate

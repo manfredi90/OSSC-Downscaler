@@ -704,7 +704,7 @@ void update_sc_config()
                           (((h_synclen >> 8) & 1) << 2) |
                           (((vm_conf.x_size >> 12) & 1) << 3) |
                           (((vm_conf.x_rpt >> 4) & 1) << 4);
-        sl_config3.data = 0;
+        sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x1f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16)) : 0;
     }
 
     sc->hv_in_config = hv_in_config;

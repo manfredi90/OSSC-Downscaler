@@ -102,7 +102,7 @@ static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standar
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
-static const char* const ds_native_desc[] = { "Standard", "Native (test)" };
+static const char* const ds_native_desc[] = { "Standard", "Native 2.5:1", "Full res" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }

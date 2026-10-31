@@ -56,6 +56,9 @@ module scanconverter (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
+    input [9:0] lb_stride,      // line buffer layout 3: words per line
+    input [4:0] lb_slots,       // line buffer layout 3: number of lines
+    input [12:0] ds_hofs,       // output position at the input frame start (clocks, 0 = line start)
     input ext_sync_mode,
     input ext_frame_change_i,
     input [7:0] ext_R_i,
@@ -107,7 +110,7 @@ localparam PP_MASK_START        = PP_PL_START;
 localparam PP_MASK_LENGTH       = 1;
 localparam PP_MASK_END          = PP_MASK_START + PP_MASK_LENGTH;
 localparam PP_LINEBUF_START     = PP_MASK_END;
-localparam PP_LINEBUF_LENGTH    = 1;
+localparam PP_LINEBUF_LENGTH    = 3;     // RAM + YCbCr -> RGB (see linebuf_top)
 localparam PP_LINEBUF_END       = PP_LINEBUF_START + PP_LINEBUF_LENGTH;
 localparam PP_SRCSEL_START      = PP_LINEBUF_END;
 localparam PP_SRCSEL_LENGTH     = 1;
@@ -198,6 +201,11 @@ reg frame_change_sync1_reg, frame_change_sync2_reg, frame_change_prev, frame_cha
 // the parity of the current input frame; the output is (re)aligned only on
 // field A frames, so that field A always ends up in the ODD output field.
 reg in_field;
+// line buffer layout 3: number of lines and base address of the line being read
+wire [10:0] LB_NUM = (lb_layout == 2'h3) ? {6'h0, lb_slots} : NUM_LINE_BUFFERS;
+reg [12:0] lb_rd_base, lb_rd_base_next;
+always @(posedge PCLK_OUT_i)
+    lb_rd_base_next <= ypos_lb_next[4:0] * lb_stride;
 reg [19:0] fp_ctr;
 wire frame_change = frame_change_sync2_reg;
 
@@ -380,6 +388,9 @@ linebuf_top #(
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
     .in_field(in_field),
+    .lb_stride(lb_stride),
+    .lb_slots(lb_slots),
+    .lb_rd_base(lb_rd_base),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),
     .B_linebuf(B_linebuf),
@@ -419,8 +430,9 @@ always @(posedge PCLK_OUT_i) begin
     // parity for interlaced output, otherwise e.g. the 480i field order could
     // never change)
     frame_change_resync <= ~frame_change_prev & frame_change &
-                           ~(((v_cnt == V_STARTLINE_PREV) & (h_cnt > H_TOTAL-128) & (~V_INTERLACED | (dst_fid == FID_PREV))) |
-                             ((v_cnt == V_STARTLINE) & (h_cnt < 128) & (~V_INTERLACED | (dst_fid == FID_START)))) &
+                           ~(((ds_hofs == 13'h0) & (v_cnt == V_STARTLINE_PREV) & (h_cnt > H_TOTAL-128) & (~V_INTERLACED | (dst_fid == FID_PREV))) |
+                             ((ds_hofs == 13'h0) & (v_cnt == V_STARTLINE) & (h_cnt < 128) & (~V_INTERLACED | (dst_fid == FID_START))) |
+                             ((ds_hofs != 13'h0) & (v_cnt == V_STARTLINE) & (h_cnt >= ds_hofs-13'd128) & (h_cnt < ds_hofs+13'd128) & (~V_INTERLACED | (dst_fid == FID_START)))) &
                            (~ds_ilace | (in_field ^ ds_fswap));    // 480i: frame shown in the odd field
     if (~frame_change_prev & frame_change)
         in_field <= ds_ilace ? ~in_field : 1'b0;
@@ -443,7 +455,7 @@ always @(posedge PCLK_OUT_i) begin
         v_cnt <= 0;
         bfi_frame <= bfi_frame ^ 1'b1;
     end else if (~ext_sync_mode & frame_change_resync) begin
-        h_cnt <= 0;
+        h_cnt <= ds_hofs;
         v_cnt <= V_STARTLINE;
         bfi_frame <= 0;
         src_fid <= (~interlaced_in_i | (V_STARTLINE < (V_TOTAL/2))) ? FID_ODD : FID_EVEN;
@@ -568,11 +580,12 @@ always @(posedge PCLK_OUT_i) begin
                 ypos_pp[1] <= ypos_pp[1] + 1'b1;
 
                 if (ypos_pp_init | (y_ctr == Y_RPT) | Y_SKIP) begin
-                    if ((ypos_lb_next >= NUM_LINE_BUFFERS-Y_STEP) & (ypos_lb_next < NUM_LINE_BUFFERS))
-                        ypos_lb_next <= ypos_lb_next + Y_STEP - NUM_LINE_BUFFERS;
+                    if ((ypos_lb_next >= LB_NUM-Y_STEP) & (ypos_lb_next < LB_NUM))
+                        ypos_lb_next <= ypos_lb_next + Y_STEP - LB_NUM;
                     else
                         ypos_lb_next <= ypos_lb_next + Y_STEP;
                     ypos_lb <= ypos_lb_next;
+                    lb_rd_base <= lb_rd_base_next;
                     line_id <= ~line_id;
                     ypos_pp_init <= 1'b0;
                     if (!ypos_pp_init)

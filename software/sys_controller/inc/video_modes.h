@@ -185,6 +185,9 @@ typedef struct {
     uint16_t ds_pll_n;      // separate output clock: pclk_out = pclk_in*M/(N*C), 0 = output at ADC clock
     uint16_t ds_pll_m;
     uint16_t ds_pll_c;
+    uint16_t ds_lb_stride;  // line buffer layout 3 (YCbCr 4:2:2): words per line
+    uint8_t ds_lb_slots;    //   number of lines
+    uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.

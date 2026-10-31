@@ -173,6 +173,10 @@ typedef struct {
     // FPGA PLL: pclk_out = pclk_in * pll_m / (pll_n * pll_c), an exact ratio
     // so that the output stays frame locked.
     uint16_t pll_n, pll_m, pll_c;
+    // Full resolution (lb_layout 3, "Full" sampling): every ADC sample is a
+    // stored pixel (YCbCr 4:2:2), output 2 clocks per pixel on the PLL clock;
+    // the line buffer timing is computed (t0_auto) instead of out_v_backporch.
+    uint8_t t0_auto;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -186,10 +190,10 @@ static const ds_mode_t ds_modes[] = {
     //   filtered: ADC 1310/line (59MHz, 2x), 381 samples averaged over 2, 3750x262
     { HDMI_720p60,      750,  655, 3750, 262, 2, 7, 2, 19, 0, 160, 1, 1, 0, 0, 0, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
-    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 17, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 3, 17, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
     //   (no filtered 240p variant: 2x oversampling would need >4095 clocks/line)
     // 640x480 VGA: same timing, odd lines
-    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 17, 0,   0, 0, 0, 0, 0, 0, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 3, 17, 0,   0, 0, 0, 0, 0, 0, "VGA>240p" },
 
     /* ---- 480i output (525 lines, 2 fields of 262.5) ----
      * Each input frame becomes one field: field A (upper) takes line 0 of every
@@ -205,6 +209,12 @@ static const ds_mode_t ds_modes[] = {
     // 74.25*105/264 = 29.53MHz (480i)
     { HDMI_720p60,      750, 1650, 1875, 262, 2, 2, 2, 19, 0,   0, 0, 3, 0, 0, 0, "720p>240pN", 11, 131, 30 },
     { HDMI_720p60,      750, 1650, 1875, 525, 2, 2, 2, 19, 0,   0, 0, 3, 1, 2, 2, "720p>480iN", 11, 105, 24 },
+    // 720p full resolution: 1650/line (74.25MHz), 1248 stored pixels (16
+    // cropped on each side) in YCbCr 4:2:2, 13 lines of 624 words; output
+    // 3125 clocks/line, 2 per pixel: 74.25*131/198 = 49.125MHz (240p),
+    // 74.25*175/264 = 49.22MHz (480i)
+    { HDMI_720p60,      750, 1650, 3125, 262, 2, 1, 3,  0, 0,  16, 0, 0, 0, 0, 0, "720p>240pF", 11, 131, 18, 1 },
+    { HDMI_720p60,      750, 1650, 3125, 525, 2, 1, 3,  0, 0,  16, 0, 0, 1, 2, 2, "720p>480iF", 11, 175, 24, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -218,7 +228,11 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_FPORCH     3   // blank lines before vsync (pre-equalizing pulses)
 #define DS_OUT_V_BPORCH_MIN 4   // blank lines after vsync (post-equalizing pulses + 1)
 
-static uint16_t ds_framesync_line, ds_v_active;
+static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
+
+static uint8_t ds_mode_sampling(const ds_mode_t *m) {
+    return m->t0_auto ? 2 : ((m->hfilt == 3) ? 1 : 0);
+}
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
@@ -238,10 +252,11 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     // pick the variant with the requested output and filter setting; fall
     // back to another filter setting, then to the next output type
     for (pass=0; pass<npass; pass++) {
-        // native sampling rows (hfilt 3) only when selected, preferred then
+        // "Sampling": 1 = native 2.5:1 rows (hfilt 3), 2 = full resolution
+        // rows (t0_auto); preferred when selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].hfilt == 3) &&
+                if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == cc->ds_native) &&
                     (ds_modes[i].ilace == want[pass]) &&
                     ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
                     return &ds_modes[i];
@@ -249,7 +264,7 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
             if ((ds_modes[i].vic == preset->vic) &&
-                (ds_modes[i].hfilt != 3) &&
+                (ds_mode_sampling(&ds_modes[i]) == 0) &&
                 (ds_modes[i].ilace == want[pass]) &&
                 ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
@@ -262,6 +277,49 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
             return match;
     }
     return NULL;
+}
+
+// Line buffer timing of the full resolution modes. Times are counted from the
+// input frame start in units of 1/(2*Vin*Hin) output clocks, so that input
+// pixels/lines and output clocks/lines are all integers. Each stored line k
+// (rows 0..239) is written while input line Y0+(vdec+1)k+st+p arrives, and
+// read during output line T0+k; its buffer is reused by line k+slots. T0 is
+// put in the middle of the window that keeps every pixel written before it
+// is read (worst at the last line, first pixel) and read before it is
+// overwritten (worst at the first line, last pixel). In 480i the even field
+// is read half a line later relative to its input frame.
+#define DS_T0_MARGIN_OC 24      // pipeline delays, output clocks
+static int32_t ds_calc_t0(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, int32_t out_offset, uint16_t w, uint16_t rpt) {
+    int64_t hin = vm_in->timings.h_total;
+    int64_t vin = m->in_v_total;
+    int64_t fo2 = m->ilace ? m->out_v_total : 2*m->out_v_total;     // 2 x output lines per input frame
+    int64_t u_ipx = (int64_t)m->out_h_total*fo2;
+    int64_t u_iline = u_ipx*hin;
+    int64_t u_oc = 2*vin*hin;
+    int64_t u_oline = u_oc*m->out_h_total;
+    int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1;
+    int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch;
+    int64_t off_out = out_offset;  // output hsync + back porch
+    int64_t g = m->vdec+1, k = DS_OUT_V_ACTIVE, d = 8192/((w+1)/2);
+    int64_t p = cc->ds_vphase % (m->vdec+1);
+    int64_t eps = DS_T0_MARGIN_OC*u_oc;
+    int64_t lo, hi, lo_b, hi_b;
+    int st_a = m->ilace ? 0 : (m->vdec/2), st_b = m->fB_st;
+
+    if (!m->ilace && !cc->ds_vblend_off)
+        st_a = m->vdec;     // blending: written at the last line of the group
+    if (d > 31)
+        d = 31;
+
+    lo = (y0 + g*(k-1) + st_a + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps;
+    hi = (y0 + g*d + st_a + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps;
+    if (m->ilace) {
+        lo_b = (y0 + g*(k-1) + st_b + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps - u_oline/2;
+        hi_b = (y0 + g*d + st_b + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - u_oline/2;
+        if (lo_b > lo) lo = lo_b;
+        if (hi_b < hi) hi = hi_b;
+    }
+    return (int32_t)(((lo + hi)/2)/u_oc);
 }
 
 #define DS_OUT_H_TOTAL_MAX  4095
@@ -334,20 +392,39 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     {
         int field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
         int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - DS_OUT_V_ACTIVE;
-        int vbp = ((m->out_v_backporch > vbp_max) ? vbp_max : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
+        int vbp = ((m->t0_auto || (m->out_v_backporch > vbp_max)) ? vbp_max : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
         int v_active = DS_OUT_V_ACTIVE;
         int delay;
+        int32_t hofs = 0;
 
         if (vbp < DS_OUT_V_BPORCH_MIN)
             vbp = DS_OUT_V_BPORCH_MIN;
         if (vbp > vbp_max)
             v_active -= vbp - vbp_max;
-        delay = (int)m->out_v_backporch - vbp;   // output field start after the input frame start, in lines
+
+        if (m->t0_auto) {
+            // output clocks from the input frame start to the start of the
+            // output line with active row 0, then split into whole lines
+            // (framesync_line) and a sub-line offset (hofs)
+            int32_t t0c = ds_calc_t0(m, cc, vm_in, out_h_synclen + vm_out->timings.h_backporch, smp_active, rpt);
+            int32_t delay_c = t0c - (int32_t)(DS_OUT_V_SYNCLEN + vbp)*m->out_h_total;
+            delay = (delay_c >= 0) ? (delay_c + m->out_h_total - 1)/m->out_h_total : -((-delay_c)/m->out_h_total);
+            hofs = delay*m->out_h_total - delay_c;
+            if (hofs < 128) {
+                hofs = 0;
+            } else if (hofs > m->out_h_total-129) {
+                delay--;
+                hofs = 0;
+            }
+        } else {
+            delay = (int)m->out_v_backporch - vbp;   // output field start after the input frame start, in lines
+        }
 
         vm_out->timings.v_backporch = vbp;
         vm_out->timings.v_active = v_active;
         ds_v_active = v_active;
         ds_framesync_line = (delay > 0) ? (field_lines - delay) : -delay;
+        ds_hofs = hofs;
     }
     vm_out->timings.interlaced = !!m->ilace;
     vm_out->type = VIDEO_SDTV;
@@ -390,6 +467,9 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->framesync_line = ds_framesync_line;
     vm_conf->framelock = 1;
     vm_conf->si_pclk_mult = 1;
+    vm_conf->ds_lb_stride = (m->lb_layout == 3) ? (smp_active+1)/2 : 0;
+    vm_conf->ds_lb_slots = (m->lb_layout == 3) ? (((8192/vm_conf->ds_lb_stride) > 31) ? 31 : (8192/vm_conf->ds_lb_stride)) : 0;
+    vm_conf->ds_hofs = ds_hofs;
     vm_conf->ds_pll_n = m->pll_n;
     vm_conf->ds_pll_m = m->pll_m;
     vm_conf->ds_pll_c = m->pll_c;

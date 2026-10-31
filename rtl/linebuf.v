@@ -48,7 +48,7 @@ module linebuf (
 	wren,
 	q);
 
-	input	[23:0]  data;
+	input	[31:0]  data;
 	input	[12:0]  rdaddress;
 	input	  rdclock;
 	input	  rdclocken;
@@ -56,7 +56,7 @@ module linebuf (
 	input	  wrclock;
 	input	  wrclocken;
 	input	  wren;
-	output	[23:0]  q;
+	output	[31:0]  q;
 `ifndef ALTERA_RESERVED_QIS
 // synopsys translate_off
 `endif
@@ -68,8 +68,8 @@ module linebuf (
 // synopsys translate_on
 `endif
 
-	wire [23:0] sub_wire0;
-	wire [23:0] q = sub_wire0[23:0];
+	wire [31:0] sub_wire0;
+	wire [31:0] q = sub_wire0[31:0];
 
 	altsyncram	altsyncram_component (
 				.address_a (wraddress),
@@ -89,7 +89,7 @@ module linebuf (
 				.byteena_b (1'b1),
 				.clocken2 (1'b1),
 				.clocken3 (1'b1),
-				.data_b ({24{1'b1}}),
+				.data_b ({32{1'b1}}),
 				.eccstatus (),
 				.q_a (),
 				.rden_a (1'b1),
@@ -111,8 +111,8 @@ module linebuf (
 		altsyncram_component.power_up_uninitialized = "FALSE",
 		altsyncram_component.widthad_a = 13,
 		altsyncram_component.widthad_b = 13,
-		altsyncram_component.width_a = 24,
-		altsyncram_component.width_b = 24,
+		altsyncram_component.width_a = 32,
+		altsyncram_component.width_b = 32,
 		altsyncram_component.width_byteena_a = 1;
 
 

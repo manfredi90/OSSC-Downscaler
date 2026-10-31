@@ -11,7 +11,7 @@ __DYNAMIC  =  0;
 MEMORY
 {
     flash_imem : ORIGIN = 0x020D0000, LENGTH = 196608
-    dataram    : ORIGIN = 0x00010000, LENGTH = 16384
+    dataram    : ORIGIN = 0x00010000, LENGTH = 12288
 }
 
 /* Stack information variables */

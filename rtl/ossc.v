@@ -93,6 +93,9 @@ wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf
 wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
 wire ds_ilace = sl_config[3];               // interlaced (480i) output, one field per input frame
 wire ds_fswap = sl_config[2];               // 480i: swapped field order
+wire [9:0] ds_lb_stride = sl_config3[9:0];  // line buffer layout 3 (YCbCr 4:2:2): words per line
+wire [4:0] ds_lb_slots = sl_config3[14:10]; //   number of lines
+wire [12:0] ds_hofs = sl_config3[28:16];    // output H position at the input frame start
 wire [7:0] ds_resync_cnt;
 wire [9:0] ds_fperiod_lo;
 wire [7:0] ds_field_cfg = sl_config[15:8];  // per-field line selection/blending (see linebuf_top)
@@ -532,6 +535,9 @@ scanconverter #(
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
     .ds_fswap(ds_fswap),
+    .lb_stride(ds_lb_stride),
+    .lb_slots(ds_lb_slots),
+    .ds_hofs(ds_hofs),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),
     .ext_R_i(8'h00),
