@@ -204,11 +204,6 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
     { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
-    // 720p native sampling (test): 1650/line (74.25MHz), 512 stored pixels,
-    // output 1875 clocks/line at 74.25*131/330 = 29.475MHz (240p) or
-    // 74.25*105/264 = 29.53MHz (480i)
-    { HDMI_720p60,      750, 1650, 1875, 262, 2, 2, 2, 19, 0,   0, 0, 3, 0, 0, 0, "720p>240pN", 11, 131, 30 },
-    { HDMI_720p60,      750, 1650, 1875, 525, 2, 2, 2, 19, 0,   0, 0, 3, 1, 2, 2, "720p>480iN", 11, 105, 24 },
     // 720p full resolution: 1650/line (74.25MHz), 1248 stored pixels (16
     // cropped on each side) in YCbCr 4:2:2, 13 lines of 624 words; output
     // 3125 clocks/line, 2 per pixel: 74.25*131/198 = 49.125MHz (240p),
@@ -231,7 +226,7 @@ static const ds_mode_t ds_modes[] = {
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
 static uint8_t ds_mode_sampling(const ds_mode_t *m) {
-    return m->t0_auto ? 2 : ((m->hfilt == 3) ? 1 : 0);
+    return m->t0_auto ? 1 : 0;
 }
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
@@ -252,11 +247,11 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     // pick the variant with the requested output and filter setting; fall
     // back to another filter setting, then to the next output type
     for (pass=0; pass<npass; pass++) {
-        // "Sampling": 1 = native 2.5:1 rows (hfilt 3), 2 = full resolution
-        // rows (t0_auto); preferred when selected, otherwise standard rows
+        // "Sampling": 1 = full resolution rows (t0_auto), preferred when
+        // selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == cc->ds_native) &&
+                if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
                     (ds_modes[i].ilace == want[pass]) &&
                     ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
                     return &ds_modes[i];
@@ -345,9 +340,6 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // 15kHz horizontal timings, in fractions of the 63.6us line:
     // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
     rpt = m->x_rpt+1;
-    // native sampling: 5 ADC samples -> 2 stored pixels
-    if (m->hfilt == 3)
-        smp_active = (smp_active*2)/5;
     out_h_synclen = (m->out_h_total*74 + 500)/1000;   // 9-bit field (up to 511)
     out_h_bp_min = (m->out_h_total*81 + 500)/1000;
     out_h_fp_min = (m->out_h_total*22 + 500)/1000;
@@ -434,7 +426,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
 
     vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
-    vm_conf->h_skip = (m->hfilt == 3) ? 0 : m->hfilt;  // ADC samples (hfilt+1) per stored sample
+    vm_conf->h_skip = m->hfilt;         // ADC samples (hfilt+1) per stored sample
     vm_conf->x_size = out_active;
     vm_conf->y_size = ds_v_active;
     vm_conf->x_offset = 0;

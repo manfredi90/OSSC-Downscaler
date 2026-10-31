@@ -22,9 +22,10 @@ qsys-generate sys.qsys \
 
 # The serial flash interface's 64x1 Avalon-ST FIFO would take a whole M9K
 # block, which the downscaler line buffers need: build it from registers.
-for f in $(grep -l "altera_avalon_sc_fifo" sys/synthesis/submodules/*intel_generic_serial_flash_interface*.v 2>/dev/null); do
-    sed -i 's/\.USE_MEMORY_BLOCKS *(1)/.USE_MEMORY_BLOCKS   (0)/' "$f"
-    echo "FIFO in registers: $f"
+for f in sys/synthesis/submodules/avst_fifo.v; do
+    grep -n "USE_MEMORY_BLOCKS" "$f" || true
+    sed -i -E 's/\.USE_MEMORY_BLOCKS( *)\( *1 *\)/.USE_MEMORY_BLOCKS\1(0)/' "$f"
+    grep -n "USE_MEMORY_BLOCKS" "$f" || true
 done
 
 # Fitter seed sweep: stop at the first seed that meets timing.

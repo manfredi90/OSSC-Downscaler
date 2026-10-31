@@ -19,6 +19,7 @@
 
 `include "lat_tester_includes.v"
 
+(* multstyle = "dsp" *)
 module scanconverter (
     input PCLK_CAP_i,
     input PCLK_OUT_i,
