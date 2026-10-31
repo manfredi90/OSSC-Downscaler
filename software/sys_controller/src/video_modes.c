@@ -204,12 +204,22 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
     { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
-    // 720p full resolution: 1650/line (74.25MHz), 1248 stored pixels (16
-    // cropped on each side) in YCbCr 4:2:2, 13 lines of 624 words; output
-    // 3125 clocks/line, 2 per pixel: 74.25*131/198 = 49.125MHz (240p),
-    // 74.25*175/264 = 49.22MHz (480i)
-    { HDMI_720p60,      750, 1650, 3125, 262, 2, 1, 3,  0, 0,  16, 0, 0, 0, 0, 0, "720p>240pF", 11, 131, 18, 1 },
-    { HDMI_720p60,      750, 1650, 3125, 525, 2, 1, 3,  0, 0,  16, 0, 0, 1, 2, 2, "720p>480iF", 11, 175, 24, 1 },
+    // Full resolution ("Sampling: Full res"): every ADC sample is a stored
+    // pixel (YCbCr 4:2:2), sampled at the source pixel clock. The output clock
+    // comes from the FPGA PLL at an exact ratio of the ADC clock; out_h_total
+    // (and for 240p the number of lines, 260..264) is chosen by
+    // ds_pll_solve() for the requested "Width". out_h below is unused.
+    // 720p: 1248 pixels (16 cropped per side), 2 clocks per pixel
+    { HDMI_720p60,      750, 1650, 3125, 262, 2, 1, 3,  0, 0,  16, 0, 0, 0, 0, 0, "720p>240pF", 0, 0, 0, 1 },
+    { HDMI_720p60,      750, 1650, 3125, 525, 2, 1, 3,  0, 0,  16, 0, 0, 1, 2, 2, "720p>480iF", 0, 0, 0, 1 },
+    // 720p center 4:3: 960 pixels, 3 clocks per pixel
+    { HDMI_720p60,      750, 1650, 3600, 262, 2, 2, 3,  0, 0, 160, 1, 0, 0, 0, 0, "4:3>240pF",  0, 0, 0, 1 },
+    { HDMI_720p60,      750, 1650, 3600, 525, 2, 2, 3,  0, 0, 160, 1, 0, 1, 2, 2, "4:3>480iF",  0, 0, 0, 1 },
+    // 480p: 720 pixels (858/line, 27MHz), VGA: 640 pixels (800/line, 25.175MHz), 3 clocks per pixel
+    { HDMI_480p60,      525,  858, 2700, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "480p>240pF", 0, 0, 0, 1 },
+    { HDMI_480p60,      525,  858, 2700, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "480p>480iF", 0, 0, 0, 1 },
+    { HDMI_640x480p60,  525,  800, 2400, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "VGA>240pF",  0, 0, 0, 1 },
+    { HDMI_640x480p60,  525,  800, 2400, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "VGA>480iF",  0, 0, 0, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -223,6 +233,8 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_FPORCH     3   // blank lines before vsync (pre-equalizing pulses)
 #define DS_OUT_V_BPORCH_MIN 4   // blank lines after vsync (post-equalizing pulses + 1)
 
+#define DS_OUT_H_TOTAL_MAX  4095
+#define DS_PLL_OUT_MAX_KHZ  66000   // see pclk_5x in ossc.sdc
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
 static uint8_t ds_mode_sampling(const ds_mode_t *m) {
@@ -274,6 +286,89 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     return NULL;
 }
 
+// Output clock / line length for the full resolution modes. The PLL makes
+// pclk_out = pclk_in * M / (N * C) and the output must stay frame locked, so
+//   out_h * (output lines per input frame) / (h_total_in * v_total_in) = M / (N * C)
+// exactly. Only some out_h have a solution with M, C <= 510 in the PLL
+// limits (VCO 600-1300MHz, phase detector 3.5-10MHz like the low bandwidth
+// configs, output 25-66MHz); for 240p the field may also have 260-264 lines
+// (15.6-15.9kHz) to find more of them. Picks the line length whose active
+// part (act clocks) is closest to target_pm (per mille of the line).
+static uint32_t ds_gcd(uint32_t a, uint32_t b) {
+    while (b) {
+        uint32_t t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt);
+
+static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt,
+                        uint32_t fin_khz, uint32_t hin, uint32_t vin, uint8_t ilace, uint32_t act, uint32_t target_pm,
+                        uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
+    ds_mode_t cand;
+    static const uint16_t lines_opt[] = {262, 264, 260, 261, 263};
+    uint32_t oh, oh_min, oh_max, li_i, best_err = 0xffffffff;
+    int found = 0;
+
+    oh_min = (act*1000 + 879)/880;      // active <= 88% of the line
+    oh_max = (act*1000)/600;            // active >= 60%
+    if (oh_max > DS_OUT_H_TOTAL_MAX)
+        oh_max = DS_OUT_H_TOTAL_MAX;
+
+    for (oh=oh_min; oh<=oh_max; oh++) {
+        for (li_i=0; li_i<(ilace ? 1 : sizeof(lines_opt)/sizeof(lines_opt[0])); li_i++) {
+            uint32_t fo2 = ilace ? 525 : 2*lines_opt[li_i];
+            uint32_t num = oh*fo2, den = 2*hin*vin, g = ds_gcd(num, den), k, n;
+            uint32_t err = (act*1000)/oh;
+
+            err = (err > target_pm) ? (err - target_pm) : (target_pm - err);
+            err = err*4 + li_i;     // prefer 262 lines on ties
+            if (err >= best_err)
+                continue;
+            num /= g;
+            den /= g;
+            for (k=1; num*k <= 510; k++) {
+                uint32_t m = num*k, nd = den*k, sol = 0;
+                if (m < 50)
+                    continue;
+                for (n=1; n<=64; n++) {
+                    uint32_t c, pfd, vco, out;
+                    if (nd % n)
+                        continue;
+                    c = nd/n;
+                    pfd = fin_khz/n;
+                    vco = (fin_khz*m)/n;
+                    out = vco/c;
+                    if ((c > 510) || (pfd < 3500) || (pfd > 10000) || (vco < 600000) || (vco > 1300000) ||
+                        (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ))
+                        continue;
+                    // the line buffer must absorb the read/write drift of this line rate
+                    memcpy(&cand, row, sizeof(ds_mode_t));
+                    cand.out_h_total = oh;
+                    cand.out_v_total = ilace ? 525 : lines_opt[li_i];
+                    if (!ds_t0_window_ok(&cand, cc, vm_in, w, rpt))
+                        break;
+                    *oh_o = oh;
+                    *lines_o = ilace ? 525 : lines_opt[li_i];
+                    *n_o = n;
+                    *m_o = m;
+                    *c_o = c;
+                    best_err = err;
+                    found = 1;
+                    sol = 1;
+                    break;
+                }
+                if (sol)
+                    break;
+            }
+        }
+    }
+    return found ? 0 : -1;
+}
+
 // Line buffer timing of the full resolution modes. Times are counted from the
 // input frame start in units of 1/(2*Vin*Hin) output clocks, so that input
 // pixels/lines and output clocks/lines are all integers. Each stored line k
@@ -284,7 +379,8 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
 // overwritten (worst at the first line, last pixel). In 480i the even field
 // is read half a line later relative to its input frame.
 #define DS_T0_MARGIN_OC 24      // pipeline delays, output clocks
-static int32_t ds_calc_t0(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, int32_t out_offset, uint16_t w, uint16_t rpt) {
+static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, int32_t out_offset, uint16_t w, uint16_t rpt,
+                         int64_t *lo_o, int64_t *hi_o, int64_t *u_oline_o, int64_t *u_oc_o) {
     int64_t hin = vm_in->timings.h_total;
     int64_t vin = m->in_v_total;
     int64_t fo2 = m->ilace ? m->out_v_total : 2*m->out_v_total;     // 2 x output lines per input frame
@@ -314,14 +410,34 @@ static int32_t ds_calc_t0(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
         if (lo_b > lo) lo = lo_b;
         if (hi_b < hi) hi = hi_b;
     }
+    *lo_o = lo;
+    *hi_o = hi;
+    *u_oline_o = u_oline;
+    *u_oc_o = u_oc;
+}
+
+static int32_t ds_calc_t0(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, int32_t out_offset, uint16_t w, uint16_t rpt) {
+    int64_t lo, hi, u_oline, u_oc;
+
+    ds_t0_window(m, cc, vm_in, out_offset, w, rpt, &lo, &hi, &u_oline, &u_oc);
     return (int32_t)(((lo + hi)/2)/u_oc);
 }
 
-#define DS_OUT_H_TOTAL_MAX  4095
+// The window width does not depend on the output H position or the line
+// phase (they shift both ends), only on the line length / number of lines:
+// require >= 0.3 lines of margin on each side.
+static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt) {
+    int64_t lo, hi, u_oline, u_oc;
 
-static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
+    ds_t0_window(m, cc, vm_in, 0, w, rpt, &lo, &hi, &u_oline, &u_oc);
+    return (hi - lo) >= (u_oline*6)/10;
+}
+
+
+static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
     uint16_t in_h_total = vm_in->timings.h_total;
     uint16_t smp_active, out_h_synclen, out_h_bp_min, out_h_fp_min, out_active_max, out_active, rpt;
+    ds_mode_t me;   // full resolution: row with the computed output timing
 
     // Optional source crop (e.g. center 4:3 of 16:9): narrower capture window
     vm_in->timings.h_backporch += m->in_crop;
@@ -337,16 +453,40 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
 
     memcpy(vm_out, vm_in, sizeof(mode_data_t));
 
+    rpt = m->x_rpt+1;
+
+    if (m->t0_auto) {
+        // output line length / PLL ratio for the requested width
+        uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
+        uint32_t target_pm = 800 + 10*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
+        uint16_t oh, lines, n, mm, c;
+
+        if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm, &oh, &lines, &n, &mm, &c) != 0)
+            return -1;
+        memcpy(&me, m, sizeof(ds_mode_t));
+        me.out_h_total = oh;
+        me.out_v_total = lines;
+        me.pll_n = n;
+        me.pll_m = mm;
+        me.pll_c = c;
+        m = &me;
+    }
+
     // 15kHz horizontal timings, in fractions of the 63.6us line:
     // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
-    rpt = m->x_rpt+1;
     out_h_synclen = (m->out_h_total*74 + 500)/1000;   // 9-bit field (up to 511)
     out_h_bp_min = (m->out_h_total*81 + 500)/1000;
     out_h_fp_min = (m->out_h_total*22 + 500)/1000;
     out_active_max = ((m->out_h_total - out_h_synclen - out_h_bp_min - out_h_fp_min)/rpt)*rpt;
     out_active = smp_active*rpt;
-    if (out_active > out_active_max)
+    if (m->t0_auto) {
+        // every stored pixel is shown; the blanking is split 3:1 between
+        // back and front porch (the H. position limits still apply)
+        out_active_max = out_active;
+        out_h_bp_min = ((m->out_h_total - out_h_synclen - out_active)*3)/4;
+    } else if (out_active > out_active_max) {
         out_active = out_active_max;    // crop the sides evenly
+    }
 
     vm_out->timings.h_total = m->out_h_total;
     vm_out->timings.h_active = out_active;
@@ -365,8 +505,8 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
             bp = bp_lim;
         if (bp > bp_max)
             bp = bp_max;
-        if (bp > 511)
-            bp = 511;           // 9-bit register field
+        if (bp > 1023)
+            bp = 1023;          // 10-bit register field
         vm_out->timings.h_backporch = bp;
     }
     vm_out->timings.h_total_adj = 0;
@@ -472,6 +612,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
 
     if (vm_out->vic == HDMI_Unknown)
         vm_out->vic = cc->default_vic;
+    return 0;
 }
 
 int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf)
@@ -593,7 +734,8 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     {
         const ds_mode_t *ds = find_ds_mode(cc, mode_preset, vm_in);
         if (ds && (ds->out_h_total <= DS_OUT_H_TOTAL_MAX)) {
-            setup_ds_mode(ds, cc, vm_in, vm_out, vm_conf);
+            if (setup_ds_mode(ds, cc, vm_in, vm_out, vm_conf) != 0)
+                return -1;
             return mindiff_id;
         }
     }

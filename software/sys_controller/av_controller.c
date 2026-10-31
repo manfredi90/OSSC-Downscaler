@@ -462,7 +462,7 @@ status_t get_status(tvp_sync_input_t syncinput)
         if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
             (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase) ||
             (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos) ||
-            (tc.ds_native != cm.cc.ds_native))
+            (tc.ds_native != cm.cc.ds_native) || (tc.ds_width != cm.cc.ds_width))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -704,7 +704,8 @@ void update_sc_config()
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
                           (((h_synclen >> 8) & 1) << 2) |
                           (((vm_conf.x_size >> 12) & 1) << 3) |
-                          (((vm_conf.x_rpt >> 4) & 1) << 4);
+                          (((vm_conf.x_rpt >> 4) & 1) << 4) |
+                          (((vm_out->timings.h_backporch >> 9) & 1) << 5);
         sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x1f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16)) : 0;
     }
 

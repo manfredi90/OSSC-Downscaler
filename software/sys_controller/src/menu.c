@@ -115,6 +115,7 @@ static void sl_hybr_str_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u
 static void lines_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, LNG("%u lines","%u ﾗｲﾝ"), v); }
 static void pixels_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, LNG("%u pixels","%u ﾄﾞｯﾄ"), v); }
 static void value_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u", v); }
+static void ds_width_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d%% (full res)", 80+(alt_8)(v-SIGNED_NUMVAL_ZERO)); }
 static void signed_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d", (alt_8)(v-SIGNED_NUMVAL_ZERO)); }
 static void lt_disp(alt_u8 v) { strncpy(menu_row2, lt_desc[v], LCD_ROW_LEN+1); }
 static void aud_db_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d dB", ((alt_8)v-AUDIO_GAIN_0DB)); }
@@ -278,6 +279,7 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 2, value_disp } } },
     { "Sampling",                               OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_native,     OPT_WRAP,   SETTING_ITEM(ds_native_desc) } } },
+    { "Width",                                  OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_width,      OPT_NOWRAP, DS_WIDTH_MIN, DS_WIDTH_MAX, ds_width_disp } } },
     { "H. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_hpos,       OPT_NOWRAP, DS_HPOS_MIN, DS_HPOS_MAX, signed_disp } } },
     { "V. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vpos,       OPT_NOWRAP, DS_VPOS_MIN, DS_VPOS_MAX, signed_disp } } },
     { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },

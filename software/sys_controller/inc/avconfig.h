@@ -47,6 +47,8 @@
 #define DS_HPOS_MAX         (SIGNED_NUMVAL_ZERO+40)
 #define DS_VPOS_MIN         (SIGNED_NUMVAL_ZERO-12)
 #define DS_VPOS_MAX         (SIGNED_NUMVAL_ZERO+12)
+#define DS_WIDTH_MIN        (SIGNED_NUMVAL_ZERO-18)
+#define DS_WIDTH_MAX        (SIGNED_NUMVAL_ZERO+6)
 
 #define SL_MODE_MAX         2
 #define SL_TYPE_MAX         2
@@ -177,7 +179,8 @@ typedef struct {
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
     alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (separate output clock)
-    alt_u8 ds_reserved[4];  // room for future options without changing the layout
+    alt_u8 ds_width;        // full resolution: active width = 80% + (ds_width - SIGNED_NUMVAL_ZERO) % of the line (0 = unset)
+    alt_u8 ds_reserved[3];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

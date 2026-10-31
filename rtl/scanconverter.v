@@ -43,7 +43,7 @@ module scanconverter (
     input [31:0] xy_out_config,
     input [31:0] xy_out_config2,
     // Downscaler firmware: extension bits for wide horizontal timings
-    // [0] h_total[12] [1] h_active[12] [2] h_synclen[8] [3] x_size[12] [4] x_rpt[4]
+    // [0] h_total[12] [1] h_active[12] [2] h_synclen[8] [3] x_size[12] [4] x_rpt[4] [5] h_backporch[9]
     input [31:0] hv_ext_config,
     input [31:0] misc_config,
     input [31:0] sl_config,
@@ -133,7 +133,7 @@ localparam PP_PL_END            = PP_TP_END;
 wire [12:0] H_TOTAL = {hv_ext_config[0], hv_out_config[11:0]};
 wire [12:0] H_ACTIVE = {hv_ext_config[1], hv_out_config[23:12]};
 wire [8:0] H_SYNCLEN = {hv_ext_config[2], hv_out_config[31:24]};
-wire [8:0] H_BACKPORCH = hv_out_config2[8:0];
+wire [9:0] H_BACKPORCH = {hv_ext_config[5], hv_out_config2[8:0]};
 
 wire V_INTERLACED = hv_out_config2[31];
 wire [10:0] V_TOTAL = hv_out_config2[19:9] >> V_INTERLACED;

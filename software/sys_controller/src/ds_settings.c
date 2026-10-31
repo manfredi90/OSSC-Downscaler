@@ -71,6 +71,8 @@ int ds_settings_load() {
         tc.ds_hpos = SIGNED_NUMVAL_ZERO;
     if (tc.ds_vpos == 0)
         tc.ds_vpos = SIGNED_NUMVAL_ZERO;
+    if (tc.ds_width == 0)
+        tc.ds_width = SIGNED_NUMVAL_ZERO;
     memcpy(&ts, &blob.ts, sizeof(settings_t));
     memcpy(rc_keymap, blob.rc_keymap, sizeof(blob.rc_keymap));
     printf("DS settings loaded\n");

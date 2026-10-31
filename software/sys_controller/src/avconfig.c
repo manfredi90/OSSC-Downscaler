@@ -47,6 +47,7 @@ const avconfig_t tc_default = {
     .ds_phase = 0x10,
     .ds_hpos = SIGNED_NUMVAL_ZERO,
     .ds_vpos = SIGNED_NUMVAL_ZERO,
+    .ds_width = SIGNED_NUMVAL_ZERO,
     .clamp_offset = SIGNED_NUMVAL_ZERO,
     .sl_altern = 1,
     .sync_vth = DEFAULT_SYNC_VTH,
