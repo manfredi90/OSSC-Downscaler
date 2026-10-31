@@ -397,7 +397,7 @@ status_t get_status(tvp_sync_input_t syncinput)
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
         }
 
-        if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1))
+        if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -750,6 +750,11 @@ void program_mode()
         }
     }
     ds_safe_screen = 0;
+
+    // Leaving the test pattern (e.g. after a transient unsupported mode while
+    // the source switches resolution): re-enable the video path
+    sys_ctrl |= VIDGEN_OFF;
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_0_BASE, sys_ctrl);
 
     printf("H: %lu.%.2lukHz V: %u.%.2uHz\n", (h_hz+5)/1000, ((h_hz+5)%1000)/10, (vmode_in.timings.v_hz_x100/100), (vmode_in.timings.v_hz_x100%100));
     printf("Estimated source dot clock: %lu.%.2luMHz\n", (dotclk_hz+5000)/1000000, ((dotclk_hz+5000)%1000000)/10000);

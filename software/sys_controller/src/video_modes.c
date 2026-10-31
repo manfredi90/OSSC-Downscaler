@@ -157,29 +157,34 @@ typedef struct {
     uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
     uint8_t v_start;            // first stored input line
+    uint16_t in_crop;           // source pixels cropped on each side
+    uint8_t ar43;               // 720p "Center 4:3" variant
     char name[11];
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
-    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1, "720p>240p" },
+    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, "720p>240p" },
+    // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262
+    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
-    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, "480p>240p" },
     // 640x480 VGA: same timing, odd lines
-    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, "VGA>240p" },
 };
 
 #define DS_OUT_V_SYNCLEN    3
 #define DS_OUT_V_ACTIVE     240
 
-static const ds_mode_t* find_ds_mode(mode_data_t *preset, mode_data_t *vm_in) {
+static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
 
     for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-        if (ds_modes[i].vic == preset->vic)
+        if ((ds_modes[i].vic == preset->vic) &&
+            ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
             return &ds_modes[i];
     }
     return NULL;
@@ -188,6 +193,10 @@ static const ds_mode_t* find_ds_mode(mode_data_t *preset, mode_data_t *vm_in) {
 static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
     uint16_t in_h_total = vm_in->timings.h_total;
     uint16_t smp_active, out_h_synclen, out_h_bp_min, out_h_fp_min, out_active_max, out_active, rpt;
+
+    // Optional source crop (e.g. center 4:3 of 16:9): narrower capture window
+    vm_in->timings.h_backporch += m->in_crop;
+    vm_in->timings.h_active -= 2*m->in_crop;
 
     // Resample horizontal timings to smp_h_total samples per line
     smp_active = (vm_in->timings.h_active*m->smp_h_total + in_h_total/2)/in_h_total;
@@ -367,7 +376,7 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     memset(vm_conf, 0, sizeof(vm_proc_config_t));
 
     {
-        const ds_mode_t *ds = find_ds_mode(mode_preset, vm_in);
+        const ds_mode_t *ds = find_ds_mode(cc, mode_preset, vm_in);
         if (ds) {
             setup_ds_mode(ds, cc, vm_in, vm_out, vm_conf);
             return mindiff_id;

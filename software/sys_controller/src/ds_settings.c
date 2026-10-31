@@ -26,7 +26,7 @@
 #include "utils.h"
 
 #define DS_SETTINGS_MAGIC   0x4F534453  // "OSDS"
-#define DS_SETTINGS_VERSION 1
+#define DS_SETTINGS_VERSION 2
 
 typedef struct {
     uint32_t magic;

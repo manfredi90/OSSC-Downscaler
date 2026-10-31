@@ -163,6 +163,8 @@ typedef struct {
     /* Downscaler settings */
     alt_u8 ds_csync;        // ds_csync_t: CSync on HSYNC (Off/XOR/AND)
     alt_u8 ds_phase;        // TVP7002 sampling phase used in downscaler modes
+    alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3
+    alt_u8 ds_reserved[13]; // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);
