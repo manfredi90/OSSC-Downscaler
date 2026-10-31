@@ -274,6 +274,7 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "720p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
     { "H. filter",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_hfilt_off,  OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
+    { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 2, value_disp } } },
 }))
 
 

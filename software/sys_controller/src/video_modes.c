@@ -161,7 +161,7 @@ typedef struct {
     uint8_t x_rpt;              // each sample lasts (x_rpt+1) output clocks
     uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
-    uint8_t v_start;            // 240p: picked line; 480i: first line of the first group
+    uint8_t v_start;            // first line of the first group (before "Line phase")
     uint16_t in_crop;           // source pixels cropped on each side
     uint8_t ar43;               // 720p "Center 4:3" variant
     uint8_t hfilt;              // ADC samples (hfilt+1) per stored sample, averaged
@@ -173,18 +173,18 @@ typedef struct {
 static const ds_mode_t ds_modes[] = {
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
-    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, 0, 0, 0, 0, "720p>240p" },
+    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 0,   0, 0, 0, 0, 0, 0, "720p>240p" },
     //   filtered: ADC 1310/line (59MHz, 2x), 508 samples averaged over 2, 3750x262
-    { HDMI_720p60,      750,  655, 3750, 262, 2, 5, 2, 19, 1,   0, 0, 1, 0, 0, 0, "720p>240p" },
+    { HDMI_720p60,      750,  655, 3750, 262, 2, 5, 2, 19, 0,   0, 0, 1, 0, 0, 0, "720p>240p" },
     // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262
-    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, 0, 0, 0, 0, "720p 4:3" },
+    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 0, 160, 1, 0, 0, 0, 0, "720p 4:3" },
     //   filtered: ADC 1310/line (59MHz, 2x), 381 samples averaged over 2, 3750x262
-    { HDMI_720p60,      750,  655, 3750, 262, 2, 7, 2, 19, 1, 160, 1, 1, 0, 0, 0, "720p 4:3" },
+    { HDMI_720p60,      750,  655, 3750, 262, 2, 7, 2, 19, 0, 160, 1, 1, 0, 0, 0, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
-    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 17, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
     //   (no filtered 240p variant: 2x oversampling would need >4095 clocks/line)
     // 640x480 VGA: same timing, odd lines
-    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, 0, 0, 0, 0, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 17, 0,   0, 0, 0, 0, 0, 0, "VGA>240p" },
 
     /* ---- 480i output (525 lines, 2 fields of 262.5) ----
      * Each input frame becomes one field: field A (upper) takes line 0 of every
@@ -293,19 +293,20 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // Vertical line selection (see linebuf_top): y_start_lb = first line of
     // the first group, per field: line written in the group (st) and number
     // of lines averaged into it (n).
+    // "Line phase" shifts the line groups by 0..vdec lines so that they can be
+    // aligned with integer-scaled content (blending a group of identical
+    // lines then gives exactly the unblended picture).
     vm_conf->ds_ilace = m->ilace;
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
+    vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
     if (m->ilace) {
-        vm_conf->y_start_lb = m->v_start;
         vm_conf->ds_field_cfg = (0 | (1<<2)) | ((m->fB_st | (m->fB_n<<2)) << 4);
     } else if (vm_conf->ds_vblend) {
-        // blend the whole group containing the picked line; for 3x-scaled 240p
-        // content the group is one source line, so nothing gets blurred
-        vm_conf->y_start_lb = (m->v_start/(m->vdec+1))*(m->vdec+1);
+        // average the whole group
         vm_conf->ds_field_cfg = m->vdec | ((m->vdec+1)<<2);
     } else {
-        vm_conf->y_start_lb = m->v_start;
-        vm_conf->ds_field_cfg = 0 | (1<<2);
+        // pick the middle line of the group (720p: line 1 of 3, 480p: line 0 of 2)
+        vm_conf->ds_field_cfg = (m->vdec/2) | (1<<2);
     }
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_vdec = m->vdec;
