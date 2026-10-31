@@ -50,8 +50,11 @@ jobs:
           set -o pipefail
           mkdir -p output_files ci_logs
           docker run --rm -v "$PWD:/build" -w /build --entrypoint /bin/bash \
-            --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            "$QUARTUS_IMAGE" -c "id; ls -l scripts/ci_build_fpga.sh; bash ./scripts/ci_build_fpga.sh" 2>&1 | tee ci_logs/fpga.log
+            "$QUARTUS_IMAGE" -c "bash ./scripts/ci_build_fpga.sh" 2>&1 | tee ci_logs/fpga.log
+
+      - name: Fix file ownership (container runs as root)
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .
 
       - name: Create SD card image
         run: |
