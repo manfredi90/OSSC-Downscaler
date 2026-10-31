@@ -180,7 +180,8 @@ typedef struct {
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
     alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (separate output clock)
     alt_u8 ds_width;        // full resolution: active width = 80% + (ds_width - SIGNED_NUMVAL_ZERO) % of the line (0 = unset)
-    alt_u8 ds_reserved[3];  // room for future options without changing the layout
+    alt_u8 ds_fixlines;     // full resolution 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines
+    alt_u8 ds_reserved[2];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

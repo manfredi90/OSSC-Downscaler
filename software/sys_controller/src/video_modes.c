@@ -292,7 +292,8 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
 // exactly. Only some out_h have a solution with M, C <= 510 in the PLL
 // limits (VCO 600-1300MHz, phase detector 3.5-10MHz like the low bandwidth
 // configs, output 25-66MHz); for 240p the field may also have 260-264 lines
-// (15.6-15.9kHz) to find more of them. Picks the line length whose active
+// (15.6-15.9kHz) to find more of them, unless fixed_lines asks for 262 only
+// (exact standard height, coarser width steps). Picks the line length whose active
 // part (act clocks) is closest to target_pm (per mille of the line).
 static uint32_t ds_gcd(uint32_t a, uint32_t b) {
     while (b) {
@@ -307,10 +308,11 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 
 static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt,
                         uint32_t fin_khz, uint32_t hin, uint32_t vin, uint8_t ilace, uint32_t act, uint32_t target_pm,
-                        uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
+                        uint8_t fixed_lines, uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
     ds_mode_t cand;
     static const uint16_t lines_opt[] = {262, 264, 260, 261, 263};
     uint32_t oh, oh_min, oh_max, li_i, best_err = 0xffffffff;
+    uint32_t n_lines = (ilace || fixed_lines) ? 1 : sizeof(lines_opt)/sizeof(lines_opt[0]);
     int found = 0;
 
     oh_min = (act*1000 + 879)/880;      // active <= 88% of the line
@@ -319,7 +321,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
         oh_max = DS_OUT_H_TOTAL_MAX;
 
     for (oh=oh_min; oh<=oh_max; oh++) {
-        for (li_i=0; li_i<(ilace ? 1 : sizeof(lines_opt)/sizeof(lines_opt[0])); li_i++) {
+        for (li_i=0; li_i<n_lines; li_i++) {
             uint32_t fo2 = ilace ? 525 : 2*lines_opt[li_i];
             uint32_t num = oh*fo2, den = 2*hin*vin, g = ds_gcd(num, den), k, n;
             uint32_t err = (act*1000)/oh;
@@ -461,8 +463,14 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         uint32_t target_pm = 800 + 10*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
         uint16_t oh, lines, n, mm, c;
 
-        if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm, &oh, &lines, &n, &mm, &c) != 0)
-            return -1;
+        if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
+                         cc->ds_fixlines, &oh, &lines, &n, &mm, &c) != 0) {
+            // no 262 line solution: fall back to 260-264 lines
+            if (!cc->ds_fixlines ||
+                (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
+                              0, &oh, &lines, &n, &mm, &c) != 0))
+                return -1;
+        }
         memcpy(&me, m, sizeof(ds_mode_t));
         me.out_h_total = oh;
         me.out_v_total = lines;
