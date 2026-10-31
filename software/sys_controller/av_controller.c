@@ -136,6 +136,7 @@ const pll_config_t pll_configs[] = { {{0x0d806000, 0x00402010, 0x08800020, 0x000
                                      {{0x040040F0, 0x61A0D004, 0x02800020, 0x00080002, 0x00000000}} };  // 2x lo-bw (~75MHz)
 
 volatile sc_regs *sc = (volatile sc_regs*)SC_CONFIG_0_BASE;
+static alt_u32 ds_fperiod_exp;
 volatile osd_regs *osd = (volatile osd_regs*)OSD_GENERATOR_0_BASE;
 volatile pll_reconfig_regs *pll_reconfig = (volatile pll_reconfig_regs*)PLL_RECONFIG_0_BASE;
 
@@ -398,7 +399,8 @@ status_t get_status(tvp_sync_input_t syncinput)
         }
 
         if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
-            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase))
+            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase) ||
+            (tc.ds_fswap != cm.cc.ds_fswap) || (tc.ds_480i_alt != cm.cc.ds_480i_alt))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -635,7 +637,7 @@ void update_sc_config()
         uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
 
         hv_out_config.h_synclen = h_synclen & 0xff;
-        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_ilace << 3) | (vm_conf.ds_field_cfg << 8)) : 0;
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_field_cfg << 8)) : 0;
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
                           (((h_synclen >> 8) & 1) << 2) |
@@ -764,8 +766,13 @@ void program_mode()
             show_safe_screen("  Unsupported");
             return;
         }
+        // 2nd LCD row: selected output mode and line rate
+        sniprintf(row2, LCD_ROW_LEN+1, "%s %lu", vmode_out.name, (unsigned long)out_hfreq);
+        ui_disp_status(1);
     }
     ds_safe_screen = 0;
+    // expected input frame period in ADC clocks (diagnostics)
+    ds_fperiod_exp = pll_h_total * cm.totlines;
 
     // Leaving the test pattern (e.g. after a transient unsupported mode while
     // the source switches resolution): re-enable the video path
@@ -1002,6 +1009,23 @@ int init_hw()
 
 void print_vm_stats() {
     int row = 0;
+    alt_u32 st = sc->fe_status.data;
+    char lrow1[LCD_ROW_LEN+1], lrow2[LCD_ROW_LEN+1];
+
+    // Diagnostics on the LCD (works without OSD): output mode and line rate,
+    // number of output resyncs since boot (R, wraps at 256) and the measured /
+    // expected input frame period in clocks (P, low 10 bits; must be equal
+    // and stable)
+    if (menu_active) {
+        return;
+    } else if (cm.id >= 0) {
+        sniprintf(lrow1, LCD_ROW_LEN+1, "%s %lu", vmode_out.name, cm.pclk_o_hz / ((vm_conf.tx_pixelrep+1) * vmode_out.timings.h_total));
+        sniprintf(lrow2, LCD_ROW_LEN+1, "R%03u P%04u/%04u", (unsigned)((st >> 14) & 0xff), (unsigned)((st >> 22) & 0x3ff), (unsigned)(ds_fperiod_exp & 0x3ff));
+    } else {
+        sniprintf(lrow1, LCD_ROW_LEN+1, "No mode");
+        sniprintf(lrow2, LCD_ROW_LEN+1, "Downscaler %s", DS_VERSION);
+    }
+    lcd_write(lrow1, lrow2);
 
     if (!menu_active) {
         memset((void*)osd->osd_array.data, 0, sizeof(osd_char_array));

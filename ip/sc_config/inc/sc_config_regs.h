@@ -29,7 +29,8 @@ typedef union {
         uint8_t interlace_flag:1;
         uint8_t sync_active:1;
         uint8_t wd_kill:1;      // 15kHz watchdog suppressing output
-        uint32_t fe_rsv:18;
+        uint8_t ds_resync_cnt:8;    // diagnostics: output resyncs (wraps)
+        uint16_t ds_fperiod_lo:10;  // diagnostics: input frame period in clocks, low bits
     } __attribute__((packed, __may_alias__));
     uint32_t data;
 } fe_status_reg;

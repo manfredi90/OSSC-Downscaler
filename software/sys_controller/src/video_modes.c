@@ -165,7 +165,7 @@ typedef struct {
     uint16_t in_crop;           // source pixels cropped on each side
     uint8_t ar43;               // 720p "Center 4:3" variant
     uint8_t hfilt;              // ADC samples (hfilt+1) per stored sample, averaged
-    uint8_t ilace;              // 480i output: one field per input frame
+    uint8_t ilace;              // 480i output: one field per input frame (2 = alternative clock)
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
 } ds_mode_t;
@@ -195,6 +195,10 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
     { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
+    // 720p, alternative clock: 560x750 -> 1600/3200, i.e. the same output timing
+    // as VGA>480i (25.2/50.4MHz). Lower horizontal resolution (434 samples).
+    { HDMI_720p60,      750,  560, 1600, 525, 2, 2, 2, 19, 0,   0, 0, 0, 2, 2, 2, "720p>480iB" },
+    { HDMI_720p60,      750,  560, 3200, 525, 2, 5, 2, 19, 0,   0, 0, 1, 2, 2, 2, "720p>480iB" },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -210,18 +214,25 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     unsigned i;
     const ds_mode_t *match = NULL;
     uint8_t want_hfilt = !cc->ds_hfilt_off;
-    uint8_t want_ilace = !!cc->ds_480i;
-    unsigned pass;
+    // wanted output: 0 = 240p, 1 = 480i, 2 = 480i with the alternative clock
+    uint8_t want[3];
+    unsigned pass, npass = 0;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
 
-    // pick the variant with the requested output (240p/480i) and filter
-    // setting; fall back to another filter setting, then to 240p
-    for (pass=0; pass<2; pass++) {
+    if (cc->ds_480i && cc->ds_480i_alt)
+        want[npass++] = 2;
+    if (cc->ds_480i)
+        want[npass++] = 1;
+    want[npass++] = 0;
+
+    // pick the variant with the requested output and filter setting; fall
+    // back to another filter setting, then to the next output type
+    for (pass=0; pass<npass; pass++) {
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
             if ((ds_modes[i].vic == preset->vic) &&
-                (ds_modes[i].ilace == (pass ? 0 : want_ilace)) &&
+                (ds_modes[i].ilace == want[pass]) &&
                 ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
                     return &ds_modes[i];
@@ -276,7 +287,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_out->timings.v_active = DS_OUT_V_ACTIVE;     // per field
     vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
     vm_out->timings.v_backporch = m->out_v_backporch;
-    vm_out->timings.interlaced = m->ilace;
+    vm_out->timings.interlaced = !!m->ilace;
     vm_out->type = VIDEO_SDTV;
     vm_out->ar.h = 4;
     vm_out->ar.v = 3;
@@ -296,7 +307,8 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // "Line phase" shifts the line groups by 0..vdec lines so that they can be
     // aligned with integer-scaled content (blending a group of identical
     // lines then gives exactly the unblended picture).
-    vm_conf->ds_ilace = m->ilace;
+    vm_conf->ds_ilace = !!m->ilace;
+    vm_conf->ds_fswap = m->ilace ? !!cc->ds_fswap : 0;
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
     if (m->ilace) {

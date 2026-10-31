@@ -55,6 +55,7 @@ module scanconverter (
     input [1:0] ds_hfilt,
     input [7:0] ds_field_cfg,
     input ds_ilace,
+    input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ext_sync_mode,
     input ext_frame_change_i,
     input [7:0] ext_R_i,
@@ -73,6 +74,9 @@ module scanconverter (
     output reg [3:0] y_ctr_shmask,
     input [11:0] shmask_data,
     output reg resync_strobe,
+    // Downscaler diagnostics (read by the CPU)
+    output reg [7:0] ds_resync_cnt,
+    output reg [9:0] ds_fperiod_lo,
     input lt_active,
     input [1:0] lt_mode,
     input emif_br_clk,
@@ -190,6 +194,7 @@ reg frame_change_sync1_reg, frame_change_sync2_reg, frame_change_prev, frame_cha
 // the parity of the current input frame; the output is (re)aligned only on
 // field A frames, so that field A always ends up in the ODD output field.
 reg in_field;
+reg [19:0] fp_ctr;
 wire frame_change = frame_change_sync2_reg;
 
 reg [12:0] h_cnt;
@@ -406,9 +411,19 @@ always @(posedge PCLK_OUT_i) begin
     frame_change_prev <= frame_change_sync2_reg;
 
     frame_change_resync <= ~frame_change_prev & frame_change & ~(((v_cnt == V_STARTLINE_PREV) & (h_cnt > H_TOTAL-128)) | ((v_cnt == V_STARTLINE) & (h_cnt < 128))) &
-                           (~ds_ilace | in_field);     // 480i: next frame is field A
+                           (~ds_ilace | (in_field ^ ds_fswap));    // 480i: frame shown in the odd field
     if (~frame_change_prev & frame_change)
         in_field <= ds_ilace ? ~in_field : 1'b0;
+
+    // diagnostics: number of output resyncs, input frame period (low bits)
+    if (frame_change_resync)
+        ds_resync_cnt <= ds_resync_cnt + 1'b1;
+    if (~frame_change_prev & frame_change) begin
+        ds_fperiod_lo <= fp_ctr[9:0];
+        fp_ctr <= 20'd1;
+    end else if (fp_ctr != 20'hfffff) begin
+        fp_ctr <= fp_ctr + 1'b1;
+    end
 end
 
 // H/V counters

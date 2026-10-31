@@ -92,6 +92,9 @@ wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf
 // sl_config2 the extension bits of the wide horizontal output timings
 wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
 wire ds_ilace = sl_config[3];               // interlaced (480i) output, one field per input frame
+wire ds_fswap = sl_config[2];               // 480i: swapped field order
+wire [7:0] ds_resync_cnt;
+wire [9:0] ds_fperiod_lo;
 wire [7:0] ds_field_cfg = sl_config[15:8];  // per-field line selection/blending (see linebuf_top)
 
 wire pll_clkout, pll_clkswitch, pll_locked;
@@ -453,7 +456,7 @@ sys sys_inst(
     .i2c_opencores_1_export_spi_miso_pad_i  (SD_DAT[0]),
     .pio_0_sys_ctrl_out_export              (sys_ctrl),
     .pio_1_controls_in_export               (controls),
-    .sc_config_0_sc_if_fe_status_i          ({18'h0, wd_kill, TVP_sync_active, TVP_fe_interlace, TVP_fe_vtotal}),
+    .sc_config_0_sc_if_fe_status_i          ({ds_fperiod_lo, ds_resync_cnt, wd_kill, TVP_sync_active, TVP_fe_interlace, TVP_fe_vtotal}),
     .sc_config_0_sc_if_fe_status2_i         ({4'h0, TVP_hsync_width, TVP_fe_pcnt_field}),
     .sc_config_0_sc_if_lt_status_i          ({lt_finished, 3'h0, lt_stb_result, lt_lat_result}),
     .sc_config_0_sc_if_hv_in_config_o       (hv_in_config),
@@ -530,6 +533,7 @@ scanconverter #(
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
+    .ds_fswap(ds_fswap),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),
     .ext_R_i(8'h00),
@@ -548,6 +552,8 @@ scanconverter #(
     .y_ctr_shmask(y_ctr_shmask),
     .shmask_data(12'h0),
     .resync_strobe(resync_strobe_i),
+    .ds_resync_cnt(ds_resync_cnt),
+    .ds_fperiod_lo(ds_fperiod_lo),
     .lt_active(lt_active),
     .lt_mode(lt_mode_synced),
     .emif_br_clk(1'b0),

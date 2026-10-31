@@ -101,6 +101,8 @@ static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
+static const char* const ds_fswap_desc[] = { "Normal", "Swapped" };
+static const char* const ds_480i_alt_desc[] = { "29.6/59MHz", "25.2/50MHz" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }
@@ -275,6 +277,8 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "H. filter",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_hfilt_off,  OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 2, value_disp } } },
+    { "480i field order",                       OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_fswap,      OPT_WRAP,   SETTING_ITEM(ds_fswap_desc) } } },
+    { "720p>480i clock",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i_alt,   OPT_WRAP,   SETTING_ITEM(ds_480i_alt_desc) } } },
 }))
 
 
