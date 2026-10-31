@@ -383,27 +383,46 @@ always @(posedge PCLK_CAP_i) begin
     first_1 <= ds_first;
 end
 
-// stage 1: blending
+// stage 1: accumulate (adders only)
 wire [9:0] sR = {1'b0, acc_q[26:18]} + {2'b0, R_1};
 wire [9:0] sG = {1'b0, acc_q[17:9]}  + {2'b0, G_1};
 wire [9:0] sB = {1'b0, acc_q[8:0]}   + {2'b0, B_1};
-wire [17:0] dR = sR * 8'd171;   // /3 ~ *171/512
-wire [17:0] dG = sG * 8'd171;
-wire [17:0] dB = sB * 8'd171;
-wire [7:0] bR = (ds_vdec == 2'h1) ? sR[8:1] : dR[16:9];
-wire [7:0] bG = (ds_vdec == 2'h1) ? sG[8:1] : dG[16:9];
-wire [7:0] bB = (ds_vdec == 2'h1) ? sB[8:1] : dB[16:9];
+
+// stage 2 registers
+reg [9:0] sR_2, sG_2, sB_2;
+reg [7:0] R_2, G_2, B_2;
+reg [10:0] x_2;
+reg v_2, store_2, first_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the group that are not written
     if (v_1 & blend_en & ~store_1)
         acc_mem[x_1[9:0]] <= first_1 ? {1'b0, R_1, 1'b0, G_1, 1'b0, B_1} : {sR[8:0], sG[8:0], sB[8:0]};
 
-    // stage 1 -> 2: line buffer write
-    xpos_wraddr <= x_1;
-    linebuf_wrdata <= (blend_en & ~first_1) ? {bR, bG, bB} : {R_1, G_1, B_1};
-    linebuf_wren <= v_1 & store_1;
+    // stage 1 -> 2
+    {sR_2, sG_2, sB_2} <= {sR, sG, sB};
+    {R_2, G_2, B_2} <= {R_1, G_1, B_1};
+    x_2 <= x_1;
+    v_2 <= v_1;
+    store_2 <= store_1;
+    first_2 <= first_1;
 end
+
+// stage 2: average of the group (2 lines: >>1, 3 lines: *171>>9 ~ /3)
+wire [17:0] dR = sR_2 * 8'd171;
+wire [17:0] dG = sG_2 * 8'd171;
+wire [17:0] dB = sB_2 * 8'd171;
+wire [7:0] bR = (ds_vdec == 2'h1) ? sR_2[8:1] : dR[16:9];
+wire [7:0] bG = (ds_vdec == 2'h1) ? sG_2[8:1] : dG[16:9];
+wire [7:0] bB = (ds_vdec == 2'h1) ? sB_2[8:1] : dB[16:9];
+
+always @(posedge PCLK_CAP_i) begin
+    // stage 2 -> 3: line buffer write
+    xpos_wraddr <= x_2;
+    linebuf_wrdata <= (blend_en & ~first_2) ? {bR, bG, bB} : {R_2, G_2, B_2};
+    linebuf_wren <= v_2 & store_2;
+end
+
 
 end
 endgenerate

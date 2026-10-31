@@ -11,7 +11,10 @@ create_generated_clock -name flash_clk_out -master_clock flash_clk -source [get_
 
 ### Scanconverter clock constraints ###
 
-create_clock -period 165MHz -name pclk_tvp_high [get_ports TVP_PCLK_i]
+# Downscaler firmware: the ADC never runs above ~66MHz (720p filtered: 59MHz,
+# 480p filtered: 49.5MHz, 15kHz passthrough: <=~30MHz), so the capture/output
+# domain is constrained at 80MHz instead of the TVP7002 maximum (165MHz).
+create_clock -period 80MHz -name pclk_tvp_high [get_ports TVP_PCLK_i]
 create_clock -period 33MHz -name pclk_tvp_low [get_ports TVP_PCLK_i] -add
 
 #derive_pll_clocks
