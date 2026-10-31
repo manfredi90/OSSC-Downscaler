@@ -397,7 +397,8 @@ status_t get_status(tvp_sync_input_t syncinput)
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
         }
 
-        if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar))
+        if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
+            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -628,6 +629,11 @@ void update_sc_config()
         sl_config3.sl_c_overlay = 0;
     }
 
+    // scanlines are not supported: sl_config carries the downscaler filters
+    sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_vblend << 1)) : 0;
+    sl_config2.data = 0;
+    sl_config3.data = 0;
+
     sc->hv_in_config = hv_in_config;
     sc->hv_in_config2 = hv_in_config2;
     sc->hv_in_config3 = hv_in_config3;
@@ -733,7 +739,7 @@ void program_mode()
     }
 
     // Tweak infoframe pixel repetition indicator if passing thru horizontally multiplied mode
-    if ((vm_conf.y_rpt == 0) && (vm_conf.h_skip > 0))
+    if ((vm_conf.y_rpt == 0) && (vm_conf.h_skip > 0) && !vm_conf.ds_vdec)
         vm_conf.hdmitx_pixr_ifr = vm_conf.h_skip;
 
     dotclk_hz = estimate_dotclk(&vmode_in, h_hz);

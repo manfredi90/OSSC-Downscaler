@@ -138,7 +138,9 @@ uint32_t calculate_pclk(uint32_t src_clk_hz, mode_data_t *vm_out, vm_proc_config
  * as is (pclk_out = pclk_in), so there is no frame buffer. Only one out of
  * every (vdec+1) input lines is stored. For an exact frame lock
  *     smp_h_total * input_v_total == out_h_total * out_v_total
- * and the output line rate is ~15.7kHz.
+ * and the output line rate is ~15.7kHz. With hfilt the ADC samples
+ * 2*smp_h_total per line and pairs are averaged (box filter against aliasing),
+ * so out_h_total is doubled as well.
  *
  * When an output line lasts a non-integer number of input lines, reading
  * drifts relative to writing over the frame; the line buffer layout is chosen
@@ -149,7 +151,7 @@ uint32_t calculate_pclk(uint32_t src_clk_hz, mode_data_t *vm_out, vm_proc_config
 typedef struct {
     HDMI_Video_Type vic;        // source preset
     uint16_t in_v_total;
-    uint16_t smp_h_total;       // samples per input line
+    uint16_t smp_h_total;       // stored samples per input line (ADC: x(hfilt+1))
     uint16_t out_h_total;
     uint16_t out_v_total;
     uint8_t vdec;               // stored line = every (vdec+1)th input line
@@ -159,18 +161,24 @@ typedef struct {
     uint8_t v_start;            // first stored input line
     uint16_t in_crop;           // source pixels cropped on each side
     uint8_t ar43;               // 720p "Center 4:3" variant
+    uint8_t hfilt;              // 2x oversampling + 2:1 average
     char name[11];
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
-    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, "720p>240p" },
-    // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262
-    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, "720p 4:3" },
+    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, 0, "720p>240p" },
+    //   filtered: ADC 1310/line (59MHz), 508 averaged samples, 3750x262
+    { HDMI_720p60,      750,  655, 3750, 262, 2, 5, 2, 19, 1,   0, 0, 1, "720p>240p" },
+    // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262 (no filtered variant yet)
+    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, 0, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
-    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, 0, "480p>240p" },
+    //   filtered: ADC 1572/line (49.5MHz), 786 averaged samples, 3150x262
+    { HDMI_480p60,      525,  786, 3150, 262, 1, 3, 1, 16, 0,   0, 0, 1, "480p>240p" },
     // 640x480 VGA: same timing, odd lines
-    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, 0, "VGA>240p" },
+    { HDMI_640x480p60,  525,  786, 3150, 262, 1, 3, 1, 16, 1,   0, 0, 1, "VGA>240p" },
 };
 
 #define DS_OUT_V_SYNCLEN    3
@@ -178,16 +186,23 @@ static const ds_mode_t ds_modes[] = {
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
+    const ds_mode_t *match = NULL;
+    uint8_t want_hfilt = !cc->ds_hfilt_off;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
 
+    // pick the variant with the requested filter setting, else any variant
     for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
         if ((ds_modes[i].vic == preset->vic) &&
-            ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
-            return &ds_modes[i];
+            ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
+            if (ds_modes[i].hfilt == want_hfilt)
+                return &ds_modes[i];
+            if (!match)
+                match = &ds_modes[i];
+        }
     }
-    return NULL;
+    return match;
 }
 
 static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
@@ -212,6 +227,8 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
     rpt = m->x_rpt+1;
     out_h_synclen = (m->out_h_total*74 + 500)/1000;
+    if (out_h_synclen > H_SYNCLEN_MAX)
+        out_h_synclen = H_SYNCLEN_MAX;     // 8-bit field: 4.3us at 59MHz
     out_h_bp_min = (m->out_h_total*81 + 500)/1000;
     out_h_fp_min = (m->out_h_total*22 + 500)/1000;
     out_active_max = ((m->out_h_total - out_h_synclen - out_h_bp_min - out_h_fp_min)/rpt)*rpt;
@@ -236,13 +253,20 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
 
     vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
-    vm_conf->h_skip = 0;
+    vm_conf->h_skip = m->hfilt;         // ADC samples (hfilt+1) per stored sample
     vm_conf->x_size = out_active;
     vm_conf->y_size = DS_OUT_V_ACTIVE;
     vm_conf->x_offset = 0;
     vm_conf->y_offset = 0;
     vm_conf->x_start_lb = (smp_active - out_active/rpt)/2;
-    vm_conf->y_start_lb = m->v_start;   // = first stored line in downscaler mode
+    // first stored line; with line blending, the last line of the group that
+    // contains the picked line (e.g. 720p: pick 1 -> blend lines 0-2, store at 2)
+    vm_conf->ds_vblend = !cc->ds_vblend_off;
+    if (vm_conf->ds_vblend)
+        vm_conf->y_start_lb = (m->v_start/(m->vdec+1))*(m->vdec+1) + m->vdec;
+    else
+        vm_conf->y_start_lb = m->v_start;
+    vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_vdec = m->vdec;
     vm_conf->ds_lb_layout = m->lb_layout;
     vm_conf->ds_csync = cc->ds_csync;

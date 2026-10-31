@@ -176,6 +176,8 @@ typedef struct {
     uint8_t ds_vdec;
     uint8_t ds_csync;
     uint8_t ds_lb_layout;
+    uint8_t ds_hfilt;
+    uint8_t ds_vblend;
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.

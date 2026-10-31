@@ -42,6 +42,12 @@ module linebuf_top (
     // Line buffer layout: 0 = 2 x 2048 px (stock), 1 = 8 x 1024 px,
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
+    // Horizontal 2:1 box filter: average each sample with the previous one
+    // (used with h_skip=1, i.e. 2x oversampling)
+    input ds_hfilt,
+    // Line blending: store the average of each group of (ds_vdec+1) lines
+    // (ds_vstart is then the LAST line of the first group)
+    input ds_vblend,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
     output [7:0] B_linebuf,
@@ -284,14 +290,50 @@ linebuf linebuf_rgb (
     .q({R_linebuf, G_linebuf, B_linebuf})
 );
 
-reg [1:0] ds_ctr;
-reg ds_store;
+// ---------------------------------------------------------------------------
+// Downscaler write path
+//   stage 0: input sample, optional horizontal 2:1 average, blend RAM read
+//   stage 1: blend (accumulate / average), blend RAM write
+//   stage 2: line buffer write
+// ---------------------------------------------------------------------------
+wire ds_mode = (ds_vdec != 2'h0);
+wire blend_en = ds_vblend & ds_mode;
 
-// Linebuffer write address calculation
+reg [1:0] ds_gpos;          // line position inside the current group
+reg ds_store, ds_first;     // per line: write to line buffer / first line of group
+reg [7:0] R_prev, G_prev, B_prev;
+
+// group start line: ds_vstart for picking, ds_vstart-ds_vdec for blending
+wire [10:0] grp_start = {5'h0, ds_vstart} - (blend_en ? {9'h0, ds_vdec} : 11'h0);
+wire [1:0] store_gpos = blend_en ? ds_vdec : 2'h0;
+
+// stage 0: horizontal filter
+wire [8:0] hR = {1'b0, R_i} + {1'b0, R_prev};
+wire [8:0] hG = {1'b0, G_i} + {1'b0, G_prev};
+wire [8:0] hB = {1'b0, B_i} + {1'b0, B_prev};
+wire [7:0] R_h = ds_hfilt ? hR[8:1] : R_i;
+wire [7:0] G_h = ds_hfilt ? hG[8:1] : G_i;
+wire [7:0] B_h = ds_hfilt ? hB[8:1] : B_i;
+
+// blend accumulator: one line, 9 bits per channel
+reg [26:0] acc_mem [0:1023] /* synthesis ramstyle = "M9K" */;
+reg [26:0] acc_q;
+
+// stage 1 registers
+reg [7:0] R_1, G_1, B_1;
+reg [10:0] x_1;
+reg v_1, store_1, first_1;
+
 always @(posedge PCLK_CAP_i) begin
+    R_prev <= R_i;
+    G_prev <= G_i;
+    B_prev <= B_i;
+
+    // per-line control
     if (ds_vdec == 2'h0) begin
         // stock: every input line goes to the next buffer
         ds_store <= 1'b1;
+        ds_first <= 1'b1;
         if (ypos_i == 0) begin
             ypos_wraddr <= 0;
         end else if (ypos_i != ypos_prev) begin
@@ -301,34 +343,66 @@ always @(posedge PCLK_CAP_i) begin
                 ypos_wraddr <= ypos_wraddr + 1'b1;
         end
     end else if (ypos_i != ypos_prev) begin
-        // downscaler: line ds_vstart goes to buffer 0, then every
-        // (ds_vdec+1)th line to the next buffer; lines in between (and
-        // lines above ds_vstart) are dropped
+        // downscaler: lines are grouped by (ds_vdec+1) from grp_start; one
+        // line per group is written (picked, or the blended last line).
+        // The first stored line (ds_vstart) goes to buffer 0.
+        if (ypos_i == grp_start) begin
+            ds_gpos <= 2'h0;
+        end else if (ds_gpos == ds_vdec) begin
+            ds_gpos <= 2'h0;
+        end else begin
+            ds_gpos <= ds_gpos + 1'b1;
+        end
+
         if (ypos_i == {5'h0, ds_vstart}) begin
             ypos_wraddr <= 0;
-            ds_ctr <= 0;
             ds_store <= 1'b1;
-        end else if (ds_ctr == ds_vdec) begin
-            ds_ctr <= 0;
-            if (ypos_i > {5'h0, ds_vstart}) begin
-                ds_store <= 1'b1;
-                if (ypos_wraddr == NUM_LINE_BUFFERS-1)
-                    ypos_wraddr <= 0;
-                else
-                    ypos_wraddr <= ypos_wraddr + 1'b1;
-            end else begin
-                ds_store <= 1'b0;
-            end
+        end else if ((ypos_i > {5'h0, ds_vstart}) &&
+                     (((ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 1'b1)) == store_gpos)) begin
+            ds_store <= 1'b1;
+            if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+                ypos_wraddr <= 0;
+            else
+                ypos_wraddr <= ypos_wraddr + 1'b1;
         end else begin
-            ds_ctr <= ds_ctr + 1'b1;
             ds_store <= 1'b0;
         end
-    end
 
-    xpos_wraddr <= xpos_i;
+        ds_first <= (ypos_i == grp_start) | (ds_gpos == ds_vdec);
+    end
     ypos_prev <= ypos_i;
-    linebuf_wrdata <= {R_i, G_i, B_i};
-    linebuf_wren <= DE_i & datavalid_i & ds_store & wr_x_ok;
+
+    // stage 0 -> 1
+    acc_q <= acc_mem[xpos_i[9:0]];
+    R_1 <= R_h;
+    G_1 <= G_h;
+    B_1 <= B_h;
+    x_1 <= xpos_i;
+    v_1 <= DE_i & datavalid_i & wr_x_ok;
+    store_1 <= ds_store;
+    first_1 <= ds_first;
+end
+
+// stage 1: blending
+wire [9:0] sR = {1'b0, acc_q[26:18]} + {2'b0, R_1};
+wire [9:0] sG = {1'b0, acc_q[17:9]}  + {2'b0, G_1};
+wire [9:0] sB = {1'b0, acc_q[8:0]}   + {2'b0, B_1};
+wire [17:0] dR = sR * 8'd171;   // /3 ~ *171/512
+wire [17:0] dG = sG * 8'd171;
+wire [17:0] dB = sB * 8'd171;
+wire [7:0] bR = (ds_vdec == 2'h1) ? sR[8:1] : dR[16:9];
+wire [7:0] bG = (ds_vdec == 2'h1) ? sG[8:1] : dG[16:9];
+wire [7:0] bB = (ds_vdec == 2'h1) ? sB[8:1] : dB[16:9];
+
+always @(posedge PCLK_CAP_i) begin
+    // accumulate the lines of the group that are not written
+    if (v_1 & blend_en & ~store_1)
+        acc_mem[x_1[9:0]] <= first_1 ? {1'b0, R_1, 1'b0, G_1, 1'b0, B_1} : {sR[8:0], sG[8:0], sB[8:0]};
+
+    // stage 1 -> 2: line buffer write
+    xpos_wraddr <= x_1;
+    linebuf_wrdata <= (blend_en & ~first_1) ? {bR, bG, bB} : {R_1, G_1, B_1};
+    linebuf_wren <= v_1 & store_1;
 end
 
 end
