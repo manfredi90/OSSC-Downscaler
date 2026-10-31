@@ -249,8 +249,15 @@ reg HSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg CSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg VSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg DE_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
-reg [12:0] xpos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
-reg [10:0] ypos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
+reg [12:0] xpos_pp[PP_PL_START:PP_PL_START];
+reg [10:0] ypos_pp[PP_PL_START:PP_PL_START];
+// Instead of carrying the 24-bit position through the whole pipeline, only
+// the line/field start events are delayed and the position is regenerated
+// with the same counters for the test pattern stage and the output.
+reg evh_pp[PP_PL_START:PP_TP_START] /* synthesis ramstyle = "logic" */;
+reg evv_pp[PP_PL_START:PP_TP_START] /* synthesis ramstyle = "logic" */;
+reg [12:0] xpos_tp, xpos_end;
+reg [10:0] ypos_tp, ypos_end;
 reg mask_enable_pp[PP_MASK_END:PP_TP_START] /* synthesis ramstyle = "logic" */;
 reg lt_box_enable_pp[PP_MASK_END:PP_TP_START] /* synthesis ramstyle = "logic" */;
 reg draw_sl_pp[(PP_SLGEN_START+1):(PP_SLGEN_END-1)] /* synthesis ramstyle = "logic" */;
@@ -413,8 +420,8 @@ linebuf_top #(
 
 videogen vg0 (
     .pclk           (PCLK_OUT_i),
-    .xpos           (xpos_pp[PP_TP_START] >> 1),      // 1440x240 test pattern ->
-    .ypos           ({ypos_pp[PP_TP_START][9:0], 1'b0}),  // 720x480 generator coords
+    .xpos           (xpos_tp >> 1),                   // 1440x240 test pattern ->
+    .ypos           ({ypos_tp[9:0], 1'b0}),           // 720x480 generator coords
     .R_out          (R_vg),
     .G_out          (G_vg),
     .B_out          (B_vg)
@@ -623,6 +630,30 @@ always @(posedge PCLK_OUT_i) begin
     end
 end
 
+// Position regeneration (see evh_pp): same update rules as xpos_pp[1] /
+// ypos_pp[1], applied PP_TP_START-1 clocks later
+integer ev_idx;
+always @(posedge PCLK_OUT_i) begin
+    evh_pp[1] <= h_avidstart;
+    evv_pp[1] <= h_avidstart & v_avidstart;
+    for (ev_idx = PP_PL_START+1; ev_idx <= PP_TP_START; ev_idx = ev_idx+1) begin
+        evh_pp[ev_idx] <= evh_pp[ev_idx-1];
+        evv_pp[ev_idx] <= evv_pp[ev_idx-1];
+    end
+    if (evh_pp[PP_TP_START-1]) begin
+        xpos_tp <= 0;
+        if (evv_pp[PP_TP_START-1])
+            ypos_tp <= 11'(-1);
+        else if (ypos_tp != V_ACTIVE)
+            ypos_tp <= ypos_tp + 1'b1;
+    end else if (xpos_tp != H_ACTIVE) begin
+        xpos_tp <= xpos_tp + 1'b1;
+    end
+    // PP_PL_END = PP_TP_START + 1
+    xpos_end <= xpos_tp;
+    ypos_end <= ypos_tp;
+end
+
 // Pipeline stages 2-
 integer pp_idx;
 always @(posedge PCLK_OUT_i) begin
@@ -630,8 +661,6 @@ always @(posedge PCLK_OUT_i) begin
         HSYNC_pp[pp_idx] <= HSYNC_pp[pp_idx-1];
         VSYNC_pp[pp_idx] <= VSYNC_pp[pp_idx-1];
         DE_pp[pp_idx] <= DE_pp[pp_idx-1];
-        xpos_pp[pp_idx] <= xpos_pp[pp_idx-1];
-        ypos_pp[pp_idx] <= ypos_pp[pp_idx-1];
     end
     CSYNC_pp[5] <= cs_d;
     for(pp_idx = 6; pp_idx <= PP_PL_END; pp_idx = pp_idx+1)
@@ -748,7 +777,7 @@ assign HSYNC_o = HSYNC_pp[PP_PL_END];
 assign CSYNC_o = CSYNC_pp[PP_PL_END];
 assign VSYNC_o = VSYNC_pp[PP_PL_END];
 assign DE_o = DE_pp[PP_PL_END];
-assign xpos_o = xpos_pp[PP_PL_END][12] ? 12'hfff : xpos_pp[PP_PL_END][11:0];   // saturate for OSD
-assign ypos_o = ypos_pp[PP_PL_END];
+assign xpos_o = xpos_end[12] ? 12'hfff : xpos_end[11:0];   // saturate for OSD
+assign ypos_o = ypos_end;
 
 endmodule

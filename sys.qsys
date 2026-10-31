@@ -222,6 +222,27 @@
          type = "int";
       }
    }
+   element remote_update_0
+   {
+      datum _sortIndex
+      {
+         value = "16";
+         type = "int";
+      }
+   }
+   element remote_update_0.avl_csr
+   {
+      datum _lockedAddress
+      {
+         value = "1";
+         type = "boolean";
+      }
+      datum baseAddress
+      {
+         value = "172032";
+         type = "String";
+      }
+   }
    element sc_config_0
    {
       datum _sortIndex
@@ -240,27 +261,6 @@
       datum baseAddress
       {
          value = "139264";
-         type = "String";
-      }
-   }
-   element timer_0
-   {
-      datum _sortIndex
-      {
-         value = "5";
-         type = "int";
-      }
-   }
-   element timer_0.s1
-   {
-      datum _lockedAddress
-      {
-         value = "1";
-         type = "boolean";
-      }
-      datum baseAddress
-      {
-         value = "131072";
          type = "String";
       }
    }
@@ -469,19 +469,22 @@
   <parameter name="SYNCHRONOUS_EDGES" value="deassert" />
   <parameter name="USE_RESET_REQUEST" value="0" />
  </module>
- <module name="sc_config_0" kind="sc_config" version="1.0" enabled="1" />
- <module name="timer_0" kind="altera_avalon_timer" version="24.1" enabled="1">
-  <parameter name="alwaysRun" value="false" />
-  <parameter name="counterSize" value="64" />
-  <parameter name="fixedPeriod" value="false" />
-  <parameter name="period" value="0xffffffff" />
-  <parameter name="periodUnits" value="CLOCKS" />
-  <parameter name="resetOutput" value="false" />
-  <parameter name="snapshot" value="true" />
-  <parameter name="systemFrequency" value="27000000" />
-  <parameter name="timeoutPulseOutput" value="false" />
-  <parameter name="watchdogPulse" value="2" />
+ <module
+   name="remote_update_0"
+   kind="altera_remote_update"
+   version="24.1"
+   enabled="1">
+  <parameter name="AUTO_DEVICE_SPEEDGRADE" value="8" />
+  <parameter name="CBX_AUTO_BLACKBOX" value="ALL" />
+  <parameter name="DEVICE" value="EP4CE15E22C8" />
+  <parameter name="DEVICE_FAMILY" value="Cyclone IV E" />
+  <parameter name="GUI_config_device" value="EPCS16" />
+  <parameter name="check_app_pof" value="false" />
+  <parameter name="check_avalon_interface" value="true" />
+  <parameter name="m_support_write_config_check" value="true" />
+  <parameter name="operation_mode" value="REMOTE" />
  </module>
+ <module name="sc_config_0" kind="sc_config" version="1.0" enabled="1" />
  <connection
    kind="avalon"
    version="24.1"
@@ -540,18 +543,18 @@
    kind="avalon"
    version="24.1"
    start="ibex_0.avalon_master_bus_data"
-   end="intel_generic_serial_flash_interface_top_0.avl_mem">
+   end="remote_update_0.avl_csr">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x02000000" />
+  <parameter name="baseAddress" value="0x0002a000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
    kind="avalon"
    version="24.1"
    start="ibex_0.avalon_master_bus_data"
-   end="timer_0.s1">
+   end="intel_generic_serial_flash_interface_top_0.avl_mem">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00020000" />
+  <parameter name="baseAddress" value="0x02000000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -610,7 +613,6 @@
  </connection>
  <connection kind="clock" version="24.1" start="clk_27.clk" end="pio_0.clk" />
  <connection kind="clock" version="24.1" start="clk_27.clk" end="pio_1.clk" />
- <connection kind="clock" version="24.1" start="clk_27.clk" end="timer_0.clk" />
  <connection
    kind="clock"
    version="24.1"
@@ -636,6 +638,11 @@
    kind="clock"
    version="24.1"
    start="clk_27.clk"
+   end="remote_update_0.clock" />
+ <connection
+   kind="clock"
+   version="24.1"
+   start="clk_27.clk"
    end="sc_config_0.clock_sink" />
  <connection
    kind="clock"
@@ -653,13 +660,6 @@
    start="ibex_0.fast_irq"
    end="i2c_opencores_0.interrupt_sender">
   <parameter name="irqNumber" value="1" />
- </connection>
- <connection
-   kind="interrupt"
-   version="24.1"
-   start="ibex_0.timer_irq"
-   end="timer_0.irq">
-  <parameter name="irqNumber" value="0" />
  </connection>
  <connection
    kind="reset"
@@ -680,12 +680,12 @@
    kind="reset"
    version="24.1"
    start="clk_27.clk_reset"
-   end="timer_0.reset" />
+   end="intel_generic_serial_flash_interface_top_0.reset" />
  <connection
    kind="reset"
    version="24.1"
    start="clk_27.clk_reset"
-   end="intel_generic_serial_flash_interface_top_0.reset" />
+   end="remote_update_0.reset" />
  <connection
    kind="reset"
    version="24.1"

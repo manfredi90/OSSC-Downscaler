@@ -71,3 +71,30 @@ int dd_printf(const char *__restrict fmt, ...) {
 
     return 0;
 }
+
+// Timestamps from the ibex cycle counter (CPU clock = 27MHz, same rate as
+// the interval timer they replace; the timer block was removed to free
+// logic). Overrides the HAL timer driver (alt_busy_sleep/usleep use these).
+#include "sys/alt_timestamp.h"
+int alt_timestamp_start(void)
+{
+    return 0;
+}
+
+alt_timestamp_type alt_timestamp(void)
+{
+    uint32_t hi, lo, hi2;
+
+    do {
+        __asm__ volatile ("csrr %0, mcycleh" : "=r"(hi));
+        __asm__ volatile ("csrr %0, mcycle" : "=r"(lo));
+        __asm__ volatile ("csrr %0, mcycleh" : "=r"(hi2));
+    } while (hi != hi2);
+
+    return ((alt_timestamp_type)hi << 32) | lo;
+}
+
+alt_u32 alt_timestamp_freq(void)
+{
+    return ALT_CPU_FREQ;
+}
