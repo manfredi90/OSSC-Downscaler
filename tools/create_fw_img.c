@@ -40,7 +40,9 @@
 // writes such images to flash 0x00080000 and never touches the primary slot.
 #define FW_KEY "OSS2"
 // Secondary slot is 0x00080000-0x000FFFFF; userdata starts at 0x00100000.
-#define FW_MAX_DATA_LEN 0x00080000
+// The last sector of the slot (0x000F0000) holds this firmware's own settings,
+// so the image must stay below it.
+#define FW_MAX_DATA_LEN 0x00070000
 
 typedef struct {
     char fw_key[4];

@@ -64,6 +64,10 @@ int fw_init_secondary() {
 }
 
 int fw_update(char *dirname, char *filename) {
+    // Downscaler firmware: updates are done from the stock (primary) firmware
+    // only, so this firmware never writes any firmware image.
+    return -1;
+#if 0
     FIL fw_file;
     SDRESULTS res;
     char dirname_root[10];
@@ -227,9 +231,11 @@ close_file:
     file_close(&fw_file);
     f_chdir("/");
     return retval;
+#endif
 }
 
 // commit FW update. Do not call functions located in flash during update
+#if 0
 void __attribute__((noinline, flatten, noreturn, __section__(".text_bram"))) fw_update_commit(uint32_t* cluster_idx, uint32_t bytes_to_copy, uint16_t fs_csize, uint16_t fs_startsec, uint32_t flash_addr) {
     int i, sectors;
     SDRESULTS res;
@@ -285,3 +291,4 @@ void __attribute__((noinline, flatten, noreturn, __section__(".text_bram"))) fw_
 
     while (1) {}
 }
+#endif

@@ -200,7 +200,7 @@ static void setup_ds_720p_240p(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *
     vm_conf->x_start_lb = 0;
     vm_conf->y_start_lb = DS_720P_V_START;  // = first stored line in downscaler mode
     vm_conf->ds_vdec = 2;
-    vm_conf->ds_csync = DS_CSYNC_XOR;
+    vm_conf->ds_csync = cc->ds_csync;
 
     vm_conf->framesync_line = 0;
     vm_conf->framelock = 1;
@@ -218,7 +218,7 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
 {
     int i, diff_lines, diff_v_hz_x100, mindiff_id=0, mindiff_lines=1000, mindiff_v_hz_x100=10000, x_rpt_decr=0, skip_hv_mult=0;
     mode_data_t *mode_preset;
-    mode_flags valid_lm[] = { (MODE_PT | (cc->pt_mode ? (MODE_L5_GEN_4_3<<(cc->pt_mode-1)) : 0)),
+    mode_flags valid_lm[] = { MODE_PT,   // downscaler firmware: plain passthrough only
                               (MODE_L2 | (MODE_L2<<cc->l2_mode)),
                               (MODE_L3_GEN_16_9<<cc->l3_mode),
                               (MODE_L4_GEN_4_3<<cc->l4_mode),
@@ -229,7 +229,9 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     uint8_t upsample2x = cc->upsample2x;
 
     // one for each video_group
-    uint8_t* group_ptr[] = { &pt_only, &cc->pm_240p, &cc->pm_240p, &cc->pm_384p, &cc->pm_480i, &cc->pm_480i, &cc->pm_480p, &cc->pm_480p, &pt_only, &cc->pm_1080i, &pt_only };
+    // Downscaler firmware: no line multiplication. Sources that are not
+    // downscaled are passed through and then checked against the 15kHz limit.
+    uint8_t* group_ptr[] = { &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only, &pt_only };
 
     for (i=0; i<num_video_modes_plm; i++) {
         mode_preset = &video_modes_plm[i];
@@ -354,7 +356,7 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
         case MODE_PT:
             vm_out->vic = vm_in->vic;
 
-            if ((cc->pt_mode == 0) && (cc->o480p_pbox) && ((mode_preset->group >= GROUP_480P) && (mode_preset->group <= GROUP_576P))) {
+            if (0) {
                 vm_conf->x_rpt = vm_conf->h_skip = 3;
                 x_rpt_decr += 1;
             } else if ((cc->pt_mode == 1) && ((mode_preset->group >= GROUP_384P) && (mode_preset->group <= GROUP_576P))) {
@@ -593,6 +595,29 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
         vm_out->vic = cc->default_vic;
 
     return mindiff_id;
+}
+
+/*
+ * Internal test pattern / "safe screen": 1440x240 @ 27MHz (1716x262),
+ * 15.73kHz / 60Hz. Shown at boot, without sync and for unsupported inputs, so
+ * the output is always at 15kHz.
+ */
+void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf)
+{
+    int i;
+
+    memset(vm_conf, 0, sizeof(vm_proc_config_t));
+    memset(vm_in, 0, sizeof(mode_data_t));
+
+    for (i=0; i<num_video_modes_plm; i++) {
+        if (video_modes_plm_default[i].vic == HDMI_240p60)
+            break;
+    }
+    memcpy(vm_out, &video_modes_plm_default[i], sizeof(mode_data_t));
+    vmode_hv_mult(vm_out, 2, 1);    // 858 -> 1716 clocks at 27MHz
+    vm_out->ar.h = 4;
+    vm_out->ar.v = 3;
+    vm_conf->ds_csync = cc->ds_csync;
 }
 
 int get_vmode(vmode_t vmode_id, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf)

@@ -63,9 +63,7 @@ module ossc (
 
 
 wire [31:0] sys_ctrl;
-wire lt_active = sys_ctrl[15];
-wire lt_armed = sys_ctrl[14];
-wire [1:0] lt_mode = sys_ctrl[13:12];
+wire lt_active = 1'b0;   // latency tester removed (downscaler build)
 wire tvp_vsync_type = sys_ctrl[10];
 wire pll_bypass = sys_ctrl[9];
 wire remote_event = sys_ctrl[8];
@@ -79,6 +77,12 @@ assign hw_reset_n = sys_ctrl[0];   //HDMI_TX_RST_N in v1.2 PCB
 
 wire [31:0] hv_in_config, hv_in_config2, hv_in_config3, hv_out_config, hv_out_config2, hv_out_config3, xy_out_config, xy_out_config2;
 wire [31:0] misc_config, sl_config, sl_config2, sl_config3;
+
+// Unused stock features are tied off here so synthesis prunes them:
+// Lumacode + reverse LPF (frontend), scanlines + shadow mask + Panasonic hack
+// (scan converter), latency tester.
+wire [31:0] misc_config_fe = {misc_config[31:15], 3'h0, 5'h0, misc_config[6:0]};
+wire [31:0] misc_config_sc = {misc_config[31:25], 1'b0, 8'h0, 1'b0, misc_config[14:0]};
 
 // Downscaler controls (misc_config reserved bits)
 wire [1:0] ds_vdec = misc_config[26:25];    // store 1 of every (ds_vdec+1) input lines
@@ -126,12 +130,11 @@ wire resync_strobe = resync_strobe_sync2_reg;
 wire [31:0] controls = {ir_code_cnt, 3'b000, vsync_flag_sync2_reg, pll_activeclock, cfg_reg[0], btn_LL, ir_code};
 
 wire lt_sensor = btn_LL[1];
-wire lt_trigger = DE_sc & G_sc[0];
-wire [1:0] lt_mode_synced;
-wire [15:0] lt_lat_result;
-wire [11:0] lt_stb_result;
-wire lt_trig_waiting;
-wire lt_finished;
+wire [1:0] lt_mode_synced = 2'h0;
+wire [15:0] lt_lat_result = 16'h0;
+wire [11:0] lt_stb_result = 12'h0;
+wire lt_trig_waiting = 1'b0;
+wire lt_finished = 1'b0;
 
 wire [31:0] lumacode_data;
 wire [7:0] lumacode_addr;
@@ -204,8 +207,8 @@ tvp7002_frontend u_tvp_frontend (
     .hv_in_config(hv_in_config),
     .hv_in_config2(hv_in_config2),
     .hv_in_config3(hv_in_config3),
-    .misc_config(misc_config),
-    .lumacode_data(lumacode_data),
+    .misc_config(misc_config_fe),
+    .lumacode_data(32'h0),
     .R_o(TVP_R_post),
     .G_o(TVP_G_post),
     .B_o(TVP_B_post),
@@ -326,9 +329,49 @@ begin
     pll_clkswitch <= (pll_activeclock != enable_sc);
 end
 
+// 15kHz output watchdog (independent of the CPU).
+// Measures the period of the generated HSYNC with the fixed 27MHz clock. If
+// 16 consecutive lines are shorter than WD_MIN_LINE_CLKS (i.e. line rate above
+// ~16.9kHz), all syncs and video are suppressed until 16 consecutive lines are
+// back in range. A 15kHz TV without sync just free-runs, which is harmless.
+localparam WD_MIN_LINE_CLKS = 12'd1598;     // 27MHz / 1598 = 16.9kHz
+reg [2:0] wd_hs_sync;
+reg [11:0] wd_line_ctr;
+reg [3:0] wd_fast_cnt, wd_ok_cnt;
+reg wd_kill = 1'b1;     // start killed until the first 16 good lines
+reg wd_kill_sync1_reg, wd_kill_sync2_reg;
+
+always @(posedge clk27) begin
+    wd_hs_sync <= {wd_hs_sync[1:0], HSYNC_sc};
+    if (wd_hs_sync[2] & ~wd_hs_sync[1]) begin
+        if (wd_line_ctr < WD_MIN_LINE_CLKS) begin
+            wd_ok_cnt <= 4'h0;
+            if (wd_fast_cnt == 4'hf)
+                wd_kill <= 1'b1;
+            else
+                wd_fast_cnt <= wd_fast_cnt + 1'b1;
+        end else begin
+            wd_fast_cnt <= 4'h0;
+            if (wd_ok_cnt == 4'hf)
+                wd_kill <= 1'b0;
+            else
+                wd_ok_cnt <= wd_ok_cnt + 1'b1;
+        end
+        wd_line_ctr <= 12'h0;
+    end else if (wd_line_ctr != 12'hfff) begin
+        wd_line_ctr <= wd_line_ctr + 1'b1;
+    end
+end
+
+always @(posedge pclk_out) begin
+    {wd_kill_sync1_reg, wd_kill_sync2_reg} <= {wd_kill, wd_kill_sync1_reg};
+end
+
 // Output registers
 always @(posedge pclk_out) begin
-    if (osd_enable) begin
+    if (wd_kill_sync2_reg) begin
+        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= 24'h0;
+    end else if (osd_enable) begin
         {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {{8{osd_color[2]}}, {8{osd_color[1]}}, {8{osd_color[0]}}};
     end else begin
         {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {R_sc, G_sc, B_sc};
@@ -336,13 +379,19 @@ always @(posedge pclk_out) begin
 
     // Sync combiner for RGBS (SCART): composite sync is sent on the HSYNC
     // line, which an HDMI-VGA DAC reproduces on VGA pin 13. Syncs are active low.
-    case (ds_csync)
-        2'h1: HDMI_TX_HS <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
-        2'h2: HDMI_TX_HS <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
-        default: HDMI_TX_HS <= HSYNC_sc;
-    endcase
-    HDMI_TX_VS <= VSYNC_sc;
-    HDMI_TX_DE <= DE_sc;
+    if (wd_kill_sync2_reg) begin
+        HDMI_TX_HS <= 1'b1;
+        HDMI_TX_VS <= 1'b1;
+        HDMI_TX_DE <= 1'b0;
+    end else begin
+        case (ds_csync)
+            2'h1: HDMI_TX_HS <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
+            2'h2: HDMI_TX_HS <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
+            default: HDMI_TX_HS <= HSYNC_sc;
+        endcase
+        HDMI_TX_VS <= VSYNC_sc;
+        HDMI_TX_DE <= DE_sc;
+    end
 end
 
 
@@ -398,7 +447,7 @@ sys sys_inst(
     .i2c_opencores_1_export_spi_miso_pad_i  (SD_DAT[0]),
     .pio_0_sys_ctrl_out_export              (sys_ctrl),
     .pio_1_controls_in_export               (controls),
-    .sc_config_0_sc_if_fe_status_i          ({19'h0, TVP_sync_active, TVP_fe_interlace, TVP_fe_vtotal}),
+    .sc_config_0_sc_if_fe_status_i          ({18'h0, wd_kill, TVP_sync_active, TVP_fe_interlace, TVP_fe_vtotal}),
     .sc_config_0_sc_if_fe_status2_i         ({4'h0, TVP_hsync_width, TVP_fe_pcnt_field}),
     .sc_config_0_sc_if_lt_status_i          ({lt_finished, 3'h0, lt_stb_result, lt_lat_result}),
     .sc_config_0_sc_if_hv_in_config_o       (hv_in_config),
@@ -463,10 +512,10 @@ scanconverter #(
     .hv_out_config3(hv_out_config3),
     .xy_out_config(xy_out_config),
     .xy_out_config2(xy_out_config2),
-    .misc_config(misc_config),
-    .sl_config(sl_config),
-    .sl_config2(sl_config2),
-    .sl_config3(sl_config3),
+    .misc_config(misc_config_sc),
+    .sl_config(32'h0),
+    .sl_config2(32'h0),
+    .sl_config3(32'h0),
     .testpattern_enable(~enable_sc),
     .lb_enable(enable_sc),
     .ds_vdec(ds_vdec),
@@ -486,7 +535,7 @@ scanconverter #(
     .ypos_o(ypos_sc),
     .x_ctr_shmask(x_ctr_shmask),
     .y_ctr_shmask(y_ctr_shmask),
-    .shmask_data(shmask_data),
+    .shmask_data(12'h0),
     .resync_strobe(resync_strobe_i),
     .lt_active(lt_active),
     .lt_mode(lt_mode_synced),
@@ -514,20 +563,6 @@ ir_rcv ir0 (
     .ir_code_cnt    (ir_code_cnt)
 );
 
-lat_tester lt0 (
-    .clk27          (clk27),
-    .pclk           (PCLK_sc),
-    .active         (lt_active),
-    .armed          (lt_armed),
-    .sensor         (lt_sensor),
-    .trigger        (lt_trigger),
-    .VSYNC_in       (VSYNC_sc),
-    .mode_in        (lt_mode),
-    .mode_synced    (lt_mode_synced),
-    .lat_result     (lt_lat_result),
-    .stb_result     (lt_stb_result),
-    .trig_waiting   (lt_trig_waiting),
-    .finished       (lt_finished)
-);
+
 
 endmodule

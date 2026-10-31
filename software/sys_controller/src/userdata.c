@@ -147,6 +147,9 @@ const ude_item_map ude_profile_items[] = {
 };
 
 int write_userdata(uint8_t entry) {
+    // Downscaler firmware: stock profiles (flash and SD) are never written.
+    return -1;
+#if 0
     ude_hdr hdr;
     FIL name_file;
     char p_filename[14];
@@ -218,9 +221,14 @@ int write_userdata(uint8_t entry) {
     printf("%lu bytes written into userdata entry %u\n", bytes_written, entry);
 
     return 0;
+#endif
 }
 
 int read_userdata(uint8_t entry, int dry_run) {
+    // Downscaler firmware: stock profiles are not used (settings live in
+    // ds_settings.c), so this firmware is never influenced by them.
+    return -1;
+#if 0
     ude_hdr hdr;
     ude_item_hdr item_hdr;
     const ude_item_map *target_map;
@@ -274,9 +282,13 @@ int read_userdata(uint8_t entry, int dry_run) {
     printf("%lu bytes read from userdata entry %u\n", bytes_read, entry);
 
     return 0;
+#endif
 }
 
 int write_userdata_sd(uint8_t entry) {
+    // Downscaler firmware: stock profiles (flash and SD) are never written.
+    return -1;
+#if 0
     FIL p_file, name_file;
     ude_hdr hdr;
     const ude_item_map *target_map;
@@ -370,9 +382,14 @@ int write_userdata_sd(uint8_t entry) {
 close_file:
     file_close(&p_file);
     return retval;
+#endif
 }
 
 int read_userdata_sd(uint8_t entry, int dry_run) {
+    // Downscaler firmware: stock profiles are not used (settings live in
+    // ds_settings.c), so this firmware is never influenced by them.
+    return -1;
+#if 0
     FIL p_file;
     ude_hdr hdr;
     ude_item_hdr item_hdr;
@@ -456,4 +473,5 @@ int read_userdata_sd(uint8_t entry, int dry_run) {
 close_file:
     file_close(&p_file);
     return retval;
+#endif
 }

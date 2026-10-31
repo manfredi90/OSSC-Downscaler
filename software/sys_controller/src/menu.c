@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "menu.h"
+#include "ds_settings.h"
 #include "av_controller.h"
 #include "firmware.h"
 #include "userdata.h"
@@ -96,6 +97,7 @@ static const char* const lumacode_pal_desc[] = { "PAL", "NTSC", c_lc_palette_set
 static const char* const adc_pll_bw_desc[] = { "High", "Medium", "Low", "Ultra low" };
 static const char* const fpga_pll_bw_desc[] = { "High", "Low" };
 static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
+static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }
@@ -162,7 +164,6 @@ MENU(menu_cust_sl, P99_PROTECT({ \
 
 MENU(menu_vinput_opt, P99_PROTECT({ \
     { LNG("Video LPF","ﾋﾞﾃﾞｵ LPF"),             OPT_AVCONFIG_SELECTION, { .sel = { &tc.video_lpf,     OPT_WRAP,   SETTING_ITEM(video_lpf_desc) } } },
-    { LNG("Reverse LPF","ｷﾞｬｸLPF"),             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.reverse_lpf,  OPT_NOWRAP, 0, REVERSE_LPF_MAX, value_disp } } },
     { LNG("YPbPr in ColSpa","ｲﾛｸｳｶﾝﾆYPbPr"),    OPT_AVCONFIG_SELECTION, { .sel = { &tc.ypbpr_cs,      OPT_WRAP,   SETTING_ITEM(ypbpr_cs_desc) } } },
     { LNG("R/Pr offset","R/Pr ｵﾌｾｯﾄ"),          OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.col.r_f_off,   OPT_NOWRAP, 0, 0xFF, value_disp } } },
     { LNG("G/Y offset","G/Y ｵﾌｾｯﾄ"),            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.col.g_f_off,   OPT_NOWRAP, 0, 0xFF, value_disp } } },
@@ -174,9 +175,6 @@ MENU(menu_vinput_opt, P99_PROTECT({ \
     { "Clamp/ALC offset",                       OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.clamp_offset,  OPT_NOWRAP, CLAMP_OFFSET_MIN, CLAMP_OFFSET_MAX, signed_disp } } },
     { "ALC V filter",                           OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.alc_v_filter,  OPT_NOWRAP, 0, ALC_V_FILTER_MAX, alc_v_filter_disp } } },
     { "ALC H filter",                           OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.alc_h_filter,  OPT_NOWRAP, 0, ALC_H_FILTER_MAX, alc_h_filter_disp } } },
-    { "Lumacode",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.lumacode_mode,  OPT_WRAP,   SETTING_ITEM(lumacode_mode_desc) } } },
-    { "Lc palette set",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.lumacode_pal,   OPT_WRAP,   SETTING_ITEM(lumacode_pal_desc) } } },
-    { "Palette set load",                       OPT_CUSTOMMENU,         { .cstm = { &cstm_lc_palette_set_load, &palset_arg_info } } },
 }))
 
 MENU(menu_sync, P99_PROTECT({ \
@@ -215,9 +213,6 @@ MENU(menu_output, P99_PROTECT({ \
     { LNG("TX mode","TXﾓｰﾄﾞ"),                  OPT_AVCONFIG_SELECTION, { .sel = { &tc.tx_mode,         OPT_WRAP, SETTING_ITEM(tx_mode_desc) } } },
     { "HDMI ITC",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.hdmi_itc,        OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
     { "HDMI Aspect flag",                      OPT_AVCONFIG_SELECTION, { .sel = { &tc.hdmi_ar,         OPT_WRAP, SETTING_ITEM(hdmi_ar_desc) } } },
-    { "HDMI HDR flag",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.hdmi_hdr,        OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
-    { "HDMI VRR flag",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.hdmi_vrr,        OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
-    { "480p/576p pbox",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.o480p_pbox,       OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
 }))
 
 MENU(menu_scanlines, P99_PROTECT({ \
@@ -245,9 +240,6 @@ MENU(menu_compatibility, P99_PROTECT({ \
     { LNG("Allow TVP HPLL2x","TVP HPLL2xｷｮﾖｳ"), OPT_AVCONFIG_SELECTION, { .sel = { &tc.tvp_hpll2x,   OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
     { "AV3 use alt. RGB",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.av3_alt_rgb,     OPT_WRAP, SETTING_ITEM(av3_alt_rgb_desc) } } },
     { "Full VSYNC bypas",                       OPT_AVCONFIG_SELECTION, { .sel = { &tc.full_vs_bypass,   OPT_WRAP,   SETTING_ITEM(off_on_desc) } } },
-    { "Default HDMI VIC",                       OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.default_vic,     OPT_NOWRAP, 0, HDMI_1080p50, value_disp } } },
-    { "Panasonic hack",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.panasonic_hack,   OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
-    { "Disable PR2x",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.hdmi_pr2x_disable, OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
 }))
 
 MENU(menu_audio, P99_PROTECT({ \
@@ -259,8 +251,6 @@ MENU(menu_audio, P99_PROTECT({ \
 #define AUDIO_MENU { LNG("Audio options  >","ｵｰﾃﾞｨｵｵﾌﾟｼｮﾝ     >"),                  OPT_SUBMENU,            { .sub = { &menu_audio, NULL, NULL } } },
 
 MENU(menu_settings, P99_PROTECT({ \
-    { LNG("Link prof->input","Link prof->input"), OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.link_av,  OPT_WRAP, AV1_RGBs, AV_LAST, link_av_desc } } },
-    { LNG("Link input->prof","Link input->prof"),   OPT_AVCONFIG_SELECTION, { .sel = { &ts.profile_link,  OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
     { LNG("Initial input","ｼｮｷﾆｭｳﾘｮｸ"),          OPT_AVCONFIG_SELECTION, { .sel = { &ts.def_input,       OPT_WRAP, SETTING_ITEM(avinput_str) } } },
     { "Autodetect input",                          OPT_AVCONFIG_SELECTION, { .sel = { &ts.auto_input,     OPT_WRAP, SETTING_ITEM(auto_input_desc) } } },
     { "Auto AV1 Y/Gs",                          OPT_AVCONFIG_SELECTION, { .sel = { &ts.auto_av1_ypbpr,     OPT_WRAP, SETTING_ITEM(rgsb_ypbpr_desc) } } },
@@ -271,25 +261,21 @@ MENU(menu_settings, P99_PROTECT({ \
     { "OSD status disp.",                       OPT_AVCONFIG_SELECTION, { .sel = { &ts.osd_status_timeout,   OPT_WRAP,   SETTING_ITEM(osd_status_desc) } } },
     { "OSD cursor color",                       OPT_AVCONFIG_SELECTION, { .sel = { &ts.osd_highlight_color,   OPT_WRAP,   SETTING_ITEM(osd_color_desc) } } },
     { "Phase hotkey",                           OPT_AVCONFIG_SELECTION, { .sel = { &ts.phase_hotkey_enable,  OPT_WRAP, SETTING_ITEM(off_on_desc) } } },
-    { LNG("<Load profile >","<ﾌﾟﾛﾌｧｲﾙﾛｰﾄﾞ    >"),   OPT_FUNC_CALL,         { .fun = { load_profile, &profile_arg_info } } },
-    { LNG("<Save profile >","<ﾌﾟﾛﾌｧｲﾙｾｰﾌﾞ    >"),  OPT_FUNC_CALL,          { .fun = { save_profile, &profile_arg_info } } },
-    { "<SD Load profile>" ,                      OPT_FUNC_CALL,          { .fun = { load_profile_sd, &sd_profile_arg_info } } },
-    { "<SD Save profile>" ,                      OPT_FUNC_CALL,          { .fun = { save_profile_sd, &sd_profile_arg_info } } },
-    { LNG("<Reset profile>","<ｾｯﾃｲｦｼｮｷｶ    >"),  OPT_FUNC_CALL,          { .fun = { reset_profile, NULL } } },
-    //{ LNG("<Import sett.  >","<ｾｯﾃｲﾖﾐｺﾐ      >"), OPT_FUNC_CALL,        { .fun = { import_userdata, NULL } } },
-    //{ LNG("<Export sett.  >","<ｾｯﾃｲｶｷｺﾐ      >"), OPT_FUNC_CALL,        { .fun = { export_userdata, NULL } } },
-    { LNG("<Fw. update    >","<ﾌｧｰﾑｳｪｱｱｯﾌﾟﾃﾞｰﾄ>"), OPT_CUSTOMMENU,         { .cstm = { &cstm_fw_update } } },
-    { "<Launch 2nd FW >",                        OPT_FUNC_CALL,        { .fun = { fw_init_secondary, NULL } } },
+    { "<Save settings >",                       OPT_FUNC_CALL,          { .fun = { ds_settings_save, NULL } } },
+    { "<Reset settings>",                       OPT_FUNC_CALL,          { .fun = { ds_settings_reset, NULL } } },
+}))
+
+MENU(menu_downscaler, P99_PROTECT({ \
+    { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
+    { LNG("Sampling phase","ｻﾝﾌﾟﾘﾝｸﾞﾌｪｰｽﾞ"),     OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_phase,     OPT_WRAP, 0, SAMPLER_PHASE_MAX, sampler_phase_disp } } },
 }))
 
 
 MENU(menu_main, P99_PROTECT({ \
+    {     "Downscaler opt.>",                   OPT_SUBMENU,            { .sub = { &menu_downscaler, NULL, NULL } } },
     { LNG("Video in opt.  >","ﾀｲｵｳｴｲｿﾞｳ     >"),  OPT_SUBMENU,            { .sub = { &menu_vinput_opt, NULL, NULL } } },
     { LNG("Sync opt.      >","ﾄﾞｳｷｵﾌﾟｼｮﾝ    >"),  OPT_SUBMENU,            { .sub = { &menu_sync, NULL, NULL } } },
-    {     "Line mult opt. >",                   OPT_SUBMENU,            { .sub = { &menu_lm, NULL, NULL } } },
     { LNG("Output opt.    >","ｼｭﾂﾘｮｸｵﾌﾟｼｮﾝ  >"),  OPT_SUBMENU,            { .sub = { &menu_output, NULL, NULL } } },
-    { LNG("Scanline opt.  >","ｽｷｬﾝﾗｲﾝｵﾌﾟｼｮﾝ >"),  OPT_SUBMENU,            { .sub = { &menu_scanlines, NULL, NULL } } },
-    { LNG("Post-proc.     >","ｱﾄｼｮﾘ         >"),  OPT_SUBMENU,            { .sub = { &menu_postproc, NULL, NULL } } },
     { LNG("Compatibility  >","ｺﾞｶﾝｾｲ        >"),  OPT_SUBMENU,            { .sub = { &menu_compatibility, NULL, NULL } } },
     AUDIO_MENU
     { LNG("Settings opt   >","ｾｯﾃｲｶﾝﾘ       >"),  OPT_SUBMENU,            { .sub = { &menu_settings, NULL, NULL } } },

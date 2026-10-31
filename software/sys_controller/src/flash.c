@@ -19,6 +19,7 @@
 
 #include <unistd.h>
 #include "flash.h"
+#include "ds_settings.h"
 
 #define DEMUX_FINISH_DELAY 10000
 
@@ -59,6 +60,12 @@ void __attribute__((noinline, flatten, __section__(".text_bram"))) flash_write_p
 
 void __attribute__((noinline, flatten, __section__(".text_bram"))) flash_sector_erase(flash_ctrl_dev *dev, uint32_t addr) {
     int i;
+
+    // Downscaler (secondary slot) firmware: the settings sector is the only
+    // one this firmware may ever erase. Anything else belongs to the stock
+    // firmware (primary image, profiles) or to this firmware's own image.
+    if ((addr & ~(FLASH_SECTOR_SIZE-1)) != DS_SETTINGS_FLASH_ADDR)
+        return;
 
     // add short delay to avoid mem/csr demux conflict (freeze) in intel_generic_serial_flash_interface
     for(i = 0; i < DEMUX_FINISH_DELAY; i++){

@@ -8,7 +8,7 @@ import struct
 import sys
 import zlib
 
-SECONDARY_MAX = 0x80000          # 0x80000-0xFFFFF
+SECONDARY_MAX = 0x70000          # 0x80000-0xEFFFF (0xF0000 = settings sector)
 FINGERPRINT = 0xEFEFEF56         # read by "Launch 2nd FW" at slot + 0x20
 SW_OFFSET = 0x50000
 

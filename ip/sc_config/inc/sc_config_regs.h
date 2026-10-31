@@ -28,7 +28,8 @@ typedef union {
         uint16_t vtotal:11;
         uint8_t interlace_flag:1;
         uint8_t sync_active:1;
-        uint32_t fe_rsv:19;
+        uint8_t wd_kill:1;      // 15kHz watchdog suppressing output
+        uint32_t fe_rsv:18;
     } __attribute__((packed, __may_alias__));
     uint32_t data;
 } fe_status_reg;

@@ -159,6 +159,10 @@ typedef struct {
     alt_u8 full_tx_setup;
     alt_u8 av3_alt_rgb;
     avinput_t link_av;
+
+    /* Downscaler settings */
+    alt_u8 ds_csync;        // ds_csync_t: CSync on HSYNC (Off/XOR/AND)
+    alt_u8 ds_phase;        // TVP7002 sampling phase used in downscaler modes
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

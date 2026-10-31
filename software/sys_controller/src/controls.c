@@ -28,6 +28,7 @@
 #include "av_controller.h"
 #include "video_modes.h"
 #include "userdata.h"
+#include "ds_settings.h"
 #include "firmware.h"
 #include "utils.h"
 #include "lcd.h"
@@ -57,6 +58,8 @@ extern alt_u32 sys_ctrl;
 extern alt_u16 tc_sampler_phase;
 extern alt_u8 profile_sel, profile_sel_menu;
 extern alt_u8 vm_edit;
+extern alt_u8 ds_safe_screen;
+extern vm_proc_config_t vm_conf;
 extern volatile osd_regs *osd;
 
 extern menu_t menu_scanlines, menu_advtiming, menu_postproc;
@@ -125,7 +128,7 @@ void setup_rc()
             usleep(WAITLOOP_SLEEP_US);
         }
     }
-    write_userdata(INIT_CONFIG_SLOT);
+    ds_settings_save();
 
     osd->osd_config.menu_active = 0;
 }
@@ -190,6 +193,13 @@ int parse_control()
         if (i == REMOTE_MAX_KEYS - 1)
             goto Button_Check;
     }
+
+    // Downscaler firmware: scanline, shadow mask, line multiplier and profile
+    // hotkeys are not available
+    if ((i == RC_SL_MODE) || (i == RC_SL_TYPE) || (i == RC_SL_MINUS) || (i == RC_SL_PLUS) ||
+        (i == RC_SHMMODE_MINUS) || (i == RC_SHMMODE_PLUS) || (i == RC_SHMINT_MINUS) || (i == RC_SHMINT_PLUS) ||
+        (i == RC_LM_MODE) || (i == RC_PROF_HOTKEY))
+        i = REMOTE_MAX_KEYS;
 
     switch (i) {
         case RC_BTN1: man_target_input = AV1_RGBs; break;
@@ -341,7 +351,25 @@ int parse_control()
             break;
         case RC_PHASE_MINUS:
         case RC_PHASE_PLUS:
-            if (ts.phase_hotkey_enable) {
+            if (ts.phase_hotkey_enable && !ds_safe_screen && vm_conf.ds_vdec) {
+                // downscaler modes share one sampling phase setting
+                if (i == RC_PHASE_MINUS)
+                    tc.ds_phase = tc.ds_phase ? (tc.ds_phase - 1) : SAMPLER_PHASE_MAX;
+                else
+                    tc.ds_phase = (tc.ds_phase < SAMPLER_PHASE_MAX) ? (tc.ds_phase + 1) : 0;
+
+                if (!menu_active) {
+                    strncpy((char*)osd->osd_array.data[0][0], "Sampling phase", OSD_CHAR_COLS);
+                    sampler_phase_disp(tc.ds_phase);
+                    strncpy((char*)osd->osd_array.data[1][0], menu_row2, OSD_CHAR_COLS);
+                    osd->osd_config.status_refresh = 1;
+                    osd->osd_row_color.mask = 0;
+                    osd->osd_sec_enable[0].mask = 3;
+                    osd->osd_sec_enable[1].mask = 0;
+                } else {
+                    render_osd_page();
+                }
+            } else if (ts.phase_hotkey_enable && !ds_safe_screen && (cm.id >= 0)) {
                 if (i == RC_PHASE_MINUS)
                     video_modes_plm[cm.id].sampler_phase = video_modes_plm[cm.id].sampler_phase ? (video_modes_plm[cm.id].sampler_phase - 1) : SAMPLER_PHASE_MAX;
                 else

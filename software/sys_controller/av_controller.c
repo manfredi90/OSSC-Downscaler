@@ -35,6 +35,7 @@
 #include "avconfig.h"
 #include "firmware.h"
 #include "userdata.h"
+#include "ds_settings.h"
 #include "it6613.h"
 #include "it6613_sys.h"
 #include "HDMI_TX.h"
@@ -70,6 +71,10 @@ tvp_input_t target_tvp;
 tvp_sync_input_t target_tvp_sync;
 alt_u8 target_type;
 alt_u8 update_cur_vm;
+
+// Downscaler firmware: set while the internal 15kHz test pattern ("safe
+// screen") is output instead of the input video
+alt_u8 ds_safe_screen;
 
 // Default settings
 const settings_t ts_default = {
@@ -235,7 +240,7 @@ int pll_reconfigure(uint8_t mult, uint32_t pclk_i_hz, uint8_t bwsel)
     uint8_t id;
     int config_changed = 0;
 
-    if ((mult > 1) || ((bwsel == 1) && (pclk_i_hz < 40000000UL)) || (cm.avinput == AV_TESTPAT)) {
+    if ((mult > 1) || ((bwsel == 1) && (pclk_i_hz < 40000000UL)) || (cm.avinput == AV_TESTPAT) || ds_safe_screen) {
         if ((mult == 2) && (pclk_i_hz > 50000000UL))
             id = ((bwsel+1)*7) - 1;
         else
@@ -253,7 +258,7 @@ int pll_reconfigure(uint8_t mult, uint32_t pclk_i_hz, uint8_t bwsel)
             printf("Reconfiguring FPGA PLL to config %u\n", id);
 
             // Try switching to fixed reference clock as otherwise reconfig may hang or corrupt configuration
-            if (cm.avinput != AV_TESTPAT) {
+            if ((cm.avinput != AV_TESTPAT) && !ds_safe_screen) {
                 sys_ctrl &= ~VIDGEN_OFF;
                 IOWR_ALTERA_AVALON_PIO_DATA(PIO_0_BASE, sys_ctrl);
                 usleep(10);
@@ -272,7 +277,7 @@ int pll_reconfigure(uint8_t mult, uint32_t pclk_i_hz, uint8_t bwsel)
                 usleep(10);
             }
 
-            if (cm.avinput != AV_TESTPAT)
+            if ((cm.avinput != AV_TESTPAT) && !ds_safe_screen)
                 sys_ctrl |= VIDGEN_OFF;
 
             config_changed = 1;
@@ -454,8 +459,18 @@ status_t get_status(tvp_sync_input_t syncinput)
         SetupAudio(cm.cc.tx_mode);
     }
 
-    cm.cc = tc;
-    update_cur_vm = 0;
+    {
+        int ds_csync_changed = (tc.ds_csync != cm.cc.ds_csync);
+        int ds_phase_changed = (tc.ds_phase != cm.cc.ds_phase);
+
+        cm.cc = tc;
+        update_cur_vm = 0;
+
+        if (ds_csync_changed)
+            update_sc_config();
+        if (ds_phase_changed && vm_conf.ds_vdec && !ds_safe_screen)
+            set_sampler_phase(cm.cc.ds_phase, 1);
+    }
 
     return status;
 }
@@ -560,7 +575,7 @@ void update_sc_config()
     misc_config.lumacode_mode = lc_cfg_arr[avconfig->lumacode_mode].mode;
     misc_config.panasonic_hack = avconfig->panasonic_hack;
     misc_config.ds_vdec = vm_conf.ds_vdec;
-    misc_config.ds_csync = vm_conf.ds_csync;
+    misc_config.ds_csync = avconfig->ds_csync;  // applies to every output (incl. test pattern)
     /*misc_config.lm_deint_mode = 0;
     misc_config.nir_even_offset = 0;*/
 
@@ -626,6 +641,38 @@ void update_sc_config()
     sc->sl_config3 = sl_config3;
 }
 
+// Downscaler firmware: output the internal 240p test pattern (15.73kHz, from
+// the fixed 27MHz reference) instead of the input. Used at boot, without sync,
+// for inputs that would not produce a 15kHz output, and if the hardware
+// watchdog ever trips.
+void show_safe_screen(const char *reason)
+{
+    printf("Safe screen: %s\n", reason);
+
+    ds_safe_screen = 1;
+    cm.id = -1;
+
+    // test pattern generator + PLL reference = 27MHz
+    sys_ctrl &= ~VIDGEN_OFF;
+    IOWR_ALTERA_AVALON_PIO_DATA(PIO_0_BASE, sys_ctrl);
+    usleep(10);
+
+    get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
+    cm.pclk_o_hz = 27000000UL;
+    pll_reconfigure(1, cm.pclk_o_hz, 0);    // PLL 1x from 27MHz
+    update_osd_size(&vmode_out);
+    update_sc_config();
+    TX_SetPixelRepetition(0, 0);
+    cm.hdmitx_pclk_level = 0;
+    TX_enable(cm.cc.tx_mode);
+
+    if (cm.avinput != AV_TESTPAT) {
+        strncpy(row1, avinput_str[cm.avinput], LCD_ROW_LEN+1);
+        strncpy(row2, reason, LCD_ROW_LEN+1);
+        ui_disp_status(1);
+    }
+}
+
 // Configure TVP7002 and scan converter logic based on the video mode
 void program_mode()
 {
@@ -662,6 +709,7 @@ void program_mode()
     if (retval == -1) {
         printf ("ERROR: no suitable mode preset found\n");
         vm_conf.si_pclk_mult = 0;
+        show_safe_screen("  Unsupported");
         return;
     }
     vmode_changed = !(cm.id == retval);
@@ -689,6 +737,18 @@ void program_mode()
 
     dotclk_hz = estimate_dotclk(&vmode_in, h_hz);
     cm.pclk_o_hz = calculate_pclk(pclk_i_hz, &vmode_out, &vm_conf);
+
+    // Downscaler firmware: never output anything but 15kHz
+    {
+        uint32_t out_hfreq = cm.pclk_o_hz / ((vm_conf.tx_pixelrep+1) * vmode_out.timings.h_total);
+        printf("Output line rate: %luHz\n", out_hfreq);
+        if ((out_hfreq < DS_HFREQ_MIN) || (out_hfreq > DS_HFREQ_MAX)) {
+            cm.id = -1;
+            show_safe_screen("  Unsupported");
+            return;
+        }
+    }
+    ds_safe_screen = 0;
 
     printf("H: %lu.%.2lukHz V: %u.%.2uHz\n", (h_hz+5)/1000, ((h_hz+5)%1000)/10, (vmode_in.timings.v_hz_x100/100), (vmode_in.timings.v_hz_x100%100));
     printf("Estimated source dot clock: %lu.%.2luMHz\n", (dotclk_hz+5000)/1000000, ((dotclk_hz+5000)%1000000)/10000);
@@ -719,7 +779,7 @@ void program_mode()
     set_lpf(cm.cc.video_lpf);
     set_csc(cm.cc.ypbpr_cs);
 
-    set_sampler_phase(video_modes_plm[cm.id].sampler_phase, 0);
+    set_sampler_phase(vm_conf.ds_vdec ? cm.cc.ds_phase : video_modes_plm[cm.id].sampler_phase, 0);
 
     fpga_pll_config_changed = pll_reconfigure(vm_conf.si_pclk_mult, pclk_i_hz, cm.cc.fpga_pll_bw);
 
@@ -898,15 +958,14 @@ int init_hw()
     // Init menu
     init_menu();
 
-    // Load initconfig and profile
-    read_userdata(INIT_CONFIG_SLOT, 0);
-    profile_sel = input_profiles[AV_TESTPAT]; // Global profile
-    read_userdata(profile_sel, 0);
+    // Load this firmware's own settings (stock profiles are never used)
+    ds_settings_load();
 
     update_settings(1);
 
-    // Setup test pattern
-    get_vmode(VMODE_480p, &vmode_in, &vmode_out, &vm_conf);
+    // Setup test pattern (240p, 15kHz)
+    ds_safe_screen = 1;
+    get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
     update_sc_config();
 
     // init always in HDMI mode (fixes yellow screen bug)
@@ -924,7 +983,6 @@ void print_vm_stats() {
 
     if (!menu_active) {
         memset((void*)osd->osd_array.data, 0, sizeof(osd_char_array));
-        read_userdata(profile_sel, 1);
 
         sniprintf((char*)osd->osd_array.data[row][0], OSD_CHAR_COLS, "Mode preset:");
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%s", vmode_out.name);
@@ -940,10 +998,10 @@ void print_vm_stats() {
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%-5u %-5u", vmode_out.timings.h_total, vmode_out.timings.v_total);
         row++;
 
-        sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "Profile:");
-        sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%u: %s", profile_sel, (target_profile_name[0] == 0) ? "<empty>" : target_profile_name);
+        sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "Line rate:");
+        sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%lu Hz", cm.pclk_o_hz / ((vm_conf.tx_pixelrep+1) * vmode_out.timings.h_total));
         sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "FW:");
-        sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%u.%.2u" FW_SUFFIX, FW_VER_MAJOR, FW_VER_MINOR);
+        sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "Downscaler %s", DS_VERSION);
         sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "FW date:");
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, __DATE__);
 
@@ -1049,6 +1107,7 @@ int main(int argc, char **argv, char **envp)
     alt_u8 auto_input_keep_current = 0;
 
     int init_stat, man_input_change;
+    alt_u8 wd_kill_ctr = 0;
 
     // Start system timer
     alt_timestamp_start();
@@ -1060,9 +1119,9 @@ int main(int argc, char **argv, char **envp)
 
     if (init_stat >= 0) {
         printf("### DIY VIDEO DIGITIZER / SCANCONVERTER INIT OK ###\n\n");
-        sniprintf(row1, LCD_ROW_LEN+1, " OSSC fw. %u.%.2u" FW_SUFFIX, FW_VER_MAJOR, FW_VER_MINOR);
+        strncpy(row1, "OSSC  Downscaler", LCD_ROW_LEN+1);
 #ifndef DEBUG
-        strncpy(row2, "2014-2026  marqs", LCD_ROW_LEN+1);
+        sniprintf(row2, LCD_ROW_LEN+1, "v%s 2nd FW 15kHz", DS_VERSION);
 #else
         strncpy(row2, "** DEBUG BUILD *", LCD_ROW_LEN+1);
 #endif
@@ -1215,13 +1274,14 @@ int main(int argc, char **argv, char **envp)
             if (target_format == FORMAT_RGBHV)
                 sys_ctrl |= VSYNC_I_TYPE;
             IOWR_ALTERA_AVALON_PIO_DATA(PIO_0_BASE, sys_ctrl);
+            // 15kHz test pattern until the new input is programmed
+            show_safe_screen((cm.avinput == AV_TESTPAT) ? "" : "    NO SYNC");
             strncpy(row1, avinput_str[cm.avinput], LCD_ROW_LEN+1);
-            strncpy(row2, "    NO SYNC", LCD_ROW_LEN+1);
+            strncpy(row2, (cm.avinput == AV_TESTPAT) ? "" : "    NO SYNC", LCD_ROW_LEN+1);
             ui_disp_status(1);
             if (man_input_change) {
                 // record last input if it was selected manually
-                if (cs.def_input == AV_LAST)
-                    write_userdata(INIT_CONFIG_SLOT);
+                // (last input is not auto-saved: flash is only written on explicit save)
                 // Set auto_input_timestamp when input is manually changed
                 auto_input_ctr = 0;
                 auto_input_timestamp = alt_timestamp();
@@ -1279,6 +1339,7 @@ int main(int argc, char **argv, char **envp)
                 } else {
                     printf("Sync lost\n");
                     cm.clkcnt = 0; //TODO: proper invalidate
+                    show_safe_screen("    NO SYNC");
                     tvp_powerdown();
                     //ths_source_sel(THS_STANDBY, 0);
                     strncpy(row1, avinput_str[cm.avinput], LCD_ROW_LEN+1);
@@ -1305,6 +1366,17 @@ int main(int argc, char **argv, char **envp)
             default:
                 break;
             }
+        }
+
+        // Hardware 15kHz watchdog tripped and stays tripped: fall back to the
+        // safe screen (should never happen unless a mode is wrong)
+        if (sc->fe_status.wd_kill && !ds_safe_screen) {
+            if (++wd_kill_ctr >= 30) {
+                wd_kill_ctr = 0;
+                show_safe_screen(" OUT OF RANGE!");
+            }
+        } else {
+            wd_kill_ctr = 0;
         }
 
         while (alt_timestamp() < start_ts + MAINLOOP_INTERVAL_US*(TIMER_0_FREQ/1000000)) {}

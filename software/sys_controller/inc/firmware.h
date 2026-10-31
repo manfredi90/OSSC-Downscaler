@@ -26,6 +26,9 @@
 #define FW_VER_MAJOR            1
 #define FW_VER_MINOR            22
 
+// Downscaler firmware version (shown at boot)
+#define DS_VERSION              "0.2"
+
 #ifdef OSDLANG_JP
 #define FW_SUFFIX              "j"
 #else

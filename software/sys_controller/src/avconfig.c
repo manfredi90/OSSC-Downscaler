@@ -36,11 +36,15 @@ avconfig_t tc;
 
 // Default configuration
 const avconfig_t tc_default = {
-    .pm_240p = 1,
-    .pm_384p = 1,
-    .pm_480i = 1,
-    .pm_1080i = 1,
-    .l3_mode = 1,
+    // Downscaler firmware: native 15kHz sources are passed through, never
+    // line-multiplied (no 31kHz+ output)
+    .pm_240p = 0,
+    .pm_384p = 0,
+    .pm_480i = 0,
+    .pm_1080i = 0,
+    .l3_mode = 0,
+    .ds_csync = 1,  // XOR
+    .ds_phase = 0x10,
     .clamp_offset = SIGNED_NUMVAL_ZERO,
     .sl_altern = 1,
     .sync_vth = DEFAULT_SYNC_VTH,

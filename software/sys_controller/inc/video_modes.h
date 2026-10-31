@@ -177,6 +177,10 @@ typedef struct {
     uint8_t ds_csync;
 } vm_proc_config_t;
 
+// Allowed output line rate range (Hz). Anything else is never output.
+#define DS_HFREQ_MIN        14500
+#define DS_HFREQ_MAX        16500
+
 typedef enum {
     DS_CSYNC_OFF = 0,
     DS_CSYNC_XOR = 1,
@@ -191,6 +195,8 @@ uint32_t estimate_dotclk(mode_data_t *vm_in, uint32_t h_hz);
 uint32_t calculate_pclk(uint32_t src_clk_hz, mode_data_t *vm_out, vm_proc_config_t *vm_conf);
 
 int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf);
+
+void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf);
 
 int get_vmode(vmode_t vmode_id, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf);
 
