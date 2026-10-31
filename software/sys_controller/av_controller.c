@@ -1007,6 +1007,21 @@ int init_hw()
     return 0;
 }
 
+// Menu "Diagnostics": output resyncs since boot (R, wraps at 256) and the
+// measured / expected input frame period in clocks (P, low 10 bits; the two
+// must be equal and stable). Repeat to refresh.
+extern char func_ret_status[];
+int ds_diagnostics() {
+    alt_u32 st = sc->fe_status.data;
+
+    if (cm.id < 0) {
+        strlcpy(func_ret_status, "No mode", LCD_ROW_LEN+1);
+        return 1;
+    }
+    sniprintf(func_ret_status, LCD_ROW_LEN+1, "R%03u P%04u/%04u", (unsigned)((st >> 14) & 0xff), (unsigned)((st >> 22) & 0x3ff), (unsigned)(ds_fperiod_exp & 0x3ff));
+    return 1;
+}
+
 void print_vm_stats() {
     int row = 0;
     alt_u32 st = sc->fe_status.data;

@@ -66,6 +66,7 @@ module scanconverter (
     output [7:0] G_o,
     output [7:0] B_o,
     output HSYNC_o,
+    output CSYNC_o,             // standard composite sync (equalizing + serrated vsync)
     output VSYNC_o,
     output DE_o,
     output [11:0] xpos_o,
@@ -236,6 +237,7 @@ reg [7:0] R_pp[PP_SRCSEL_END:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg [7:0] G_pp[PP_SRCSEL_END:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg [7:0] B_pp[PP_SRCSEL_END:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg HSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
+reg CSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg VSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg DE_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg [12:0] xpos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
@@ -486,9 +488,32 @@ end
 // |          |          |         |         |         |         |         |         |         |         |         |    TP   |
 
 
+// Standard composite sync (as in NTSC): 3 lines of equalizing pulses (half
+// width, every half line), 3 lines of serrated vsync (broad pulses every half
+// line) and 3 lines of equalizing pulses. Positions are counted in half lines
+// from the vsync start of the current field (cs_pcur) or of the next one
+// (cs_pnext). In 480i the even field's vsync starts half a line before its
+// v_cnt 0, and the odd field (V_TOTAL+1 lines) ends half a line early.
+wire cs_half = (h_cnt >= (H_TOTAL/2));
+wire [12:0] cs_hpos = cs_half ? (h_cnt - (H_TOTAL/2)) : h_cnt;
+wire cs_even = V_INTERLACED & (dst_fid == FID_EVEN);
+wire signed [13:0] cs_pcur = $signed({2'b00, v_cnt, cs_half}) + $signed({13'h0, cs_even});
+wire signed [13:0] cs_flen = $signed({2'b00, V_TOTAL, 1'b0}) + $signed({13'h0, V_INTERLACED});
+wire signed [13:0] cs_pnext = cs_pcur - cs_flen;
+wire signed [13:0] cs_p = (cs_pnext >= -14'sd6) ? cs_pnext : cs_pcur;
+wire signed [13:0] cs_vs_end = $signed({9'h0, V_SYNCLEN, 1'b0});
+wire cs_vs = (cs_p >= 0) & (cs_p < cs_vs_end);
+wire cs_eq = ((cs_p >= -14'sd6) & (cs_p < 0)) | ((cs_p >= cs_vs_end) & (cs_p < cs_vs_end + 14'sd6));
+
 // Pipeline stage 1
 always @(posedge PCLK_OUT_i) begin
     HSYNC_pp[1] <= (h_cnt < H_SYNCLEN) ? 1'b0 : 1'b1;
+    if (cs_vs)
+        CSYNC_pp[1] <= ~(cs_hpos < ((H_TOTAL/2) - H_SYNCLEN));
+    else if (cs_eq)
+        CSYNC_pp[1] <= ~(cs_hpos < (H_SYNCLEN/2));
+    else
+        CSYNC_pp[1] <= ~(~cs_half & (h_cnt < H_SYNCLEN));
     if (dst_fid == FID_ODD)
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN) | ((v_cnt == V_TOTAL) & (h_cnt >= (H_TOTAL/2)))) ? 1'b0 : 1'b1;
     else
@@ -573,6 +598,7 @@ integer pp_idx;
 always @(posedge PCLK_OUT_i) begin
     for(pp_idx = PP_PL_START+1; pp_idx <= PP_PL_END; pp_idx = pp_idx+1) begin
         HSYNC_pp[pp_idx] <= HSYNC_pp[pp_idx-1];
+        CSYNC_pp[pp_idx] <= CSYNC_pp[pp_idx-1];
         VSYNC_pp[pp_idx] <= VSYNC_pp[pp_idx-1];
         DE_pp[pp_idx] <= DE_pp[pp_idx-1];
         xpos_pp[pp_idx] <= xpos_pp[pp_idx-1];
@@ -687,6 +713,7 @@ assign R_o = R_pp[PP_PL_END];
 assign G_o = G_pp[PP_PL_END];
 assign B_o = B_pp[PP_PL_END];
 assign HSYNC_o = HSYNC_pp[PP_PL_END];
+assign CSYNC_o = CSYNC_pp[PP_PL_END];
 assign VSYNC_o = VSYNC_pp[PP_PL_END];
 assign DE_o = DE_pp[PP_PL_END];
 assign xpos_o = xpos_pp[PP_PL_END][12] ? 12'hfff : xpos_pp[PP_PL_END][11:0];   // saturate for OSD

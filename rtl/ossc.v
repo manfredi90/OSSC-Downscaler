@@ -104,7 +104,7 @@ wire [15:0] ir_code;
 wire [7:0] ir_code_cnt;
 
 wire [7:0] R_sc, G_sc, B_sc;
-wire HSYNC_sc, VSYNC_sc, DE_sc;
+wire HSYNC_sc, VSYNC_sc, DE_sc, CSYNC_sc;
 wire pll_areset, pll_scanclk, pll_scanclkena, pll_configupdate, pll_scandata, pll_scandone, pll_activeclock;
 wire PCLK_sc;
 wire pclk_out = PCLK_sc;
@@ -396,6 +396,7 @@ always @(posedge pclk_out) begin
         case (ds_csync)
             2'h1: HDMI_TX_HS <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
             2'h2: HDMI_TX_HS <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
+            2'h3: HDMI_TX_HS <= CSYNC_sc;               // standard: equalizing pulses + serrated vsync
             default: HDMI_TX_HS <= HSYNC_sc;
         endcase
         HDMI_TX_VS <= VSYNC_sc;
@@ -544,6 +545,7 @@ scanconverter #(
     .G_o(G_sc),
     .B_o(B_sc),
     .HSYNC_o(HSYNC_sc),
+    .CSYNC_o(CSYNC_sc),
     .VSYNC_o(VSYNC_sc),
     .DE_o(DE_sc),
     .xpos_o(xpos_sc),

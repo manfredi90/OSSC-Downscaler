@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include "menu.h"
 #include "ds_settings.h"
+int ds_diagnostics();
 #include "av_controller.h"
 #include "firmware.h"
 #include "userdata.h"
@@ -97,7 +98,7 @@ static const char* const lumacode_pal_desc[] = { "PAL", "NTSC", c_lc_palette_set
 static const char* const adc_pll_bw_desc[] = { "High", "Medium", "Low", "Ultra low" };
 static const char* const fpga_pll_bw_desc[] = { "High", "Low" };
 static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
-static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND" };
+static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
@@ -279,6 +280,7 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 2, value_disp } } },
     { "480i field order",                       OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_fswap,      OPT_WRAP,   SETTING_ITEM(ds_fswap_desc) } } },
     { "720p>480i clock",                        OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i_alt,   OPT_WRAP,   SETTING_ITEM(ds_480i_alt_desc) } } },
+    { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },
 }))
 
 

@@ -192,6 +192,7 @@ typedef enum {
     DS_CSYNC_OFF = 0,
     DS_CSYNC_XOR = 1,
     DS_CSYNC_AND = 2,
+    DS_CSYNC_STD = 3,   // equalizing pulses + serrated vsync (needed for 480i on PVMs)
 } ds_csync_t;
 
 
