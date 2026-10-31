@@ -172,7 +172,16 @@ typedef struct {
     uint8_t hdmitx_pixr_ifr;
     // for generation from 27MHz clock
     int8_t si_pclk_mult;
+    // downscaler
+    uint8_t ds_vdec;
+    uint8_t ds_csync;
 } vm_proc_config_t;
+
+typedef enum {
+    DS_CSYNC_OFF = 0,
+    DS_CSYNC_XOR = 1,
+    DS_CSYNC_AND = 2,
+} ds_csync_t;
 
 
 void set_default_vm_table();

@@ -47,6 +47,7 @@ module scanconverter (
     input [31:0] sl_config3,
     input testpattern_enable,
     input lb_enable,
+    input [1:0] ds_vdec,
     input ext_sync_mode,
     input ext_frame_change_i,
     input [7:0] ext_R_i,
@@ -134,7 +135,10 @@ wire signed [9:0] X_OFFSET = xy_out_config2[9:0];
 wire signed [8:0] Y_OFFSET = xy_out_config[31:23];
 
 wire [7:0] X_START_LB = xy_out_config2[17:10];
-wire signed [5:0] Y_START_LB = xy_out_config2[23:18];
+// In downscaler mode the y_start_lb field holds the first stored input line
+// (see linebuf_top) and the output always starts from line buffer 0.
+wire [5:0] DS_VSTART = xy_out_config2[23:18];
+wire signed [5:0] Y_START_LB = (ds_vdec != 2'h0) ? 6'sd0 : xy_out_config2[23:18];
 
 wire signed [3:0] X_RPT = xy_out_config2[27:24];
 wire signed [3:0] Y_RPT = xy_out_config2[31:28];
@@ -348,6 +352,8 @@ linebuf_top #(
     .ypos_lb_next(ypos_lb_next),
     .line_id(line_id),
     .lb_enable(lb_enable),
+    .ds_vdec(ds_vdec),
+    .ds_vstart(DS_VSTART),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),
     .B_linebuf(B_linebuf),

@@ -112,7 +112,9 @@ typedef union {
         uint8_t shmask_iv_x:4;
         uint8_t shmask_iv_y:4;
         uint8_t panasonic_hack:1;
-        uint32_t misc_rsv:7;
+        uint8_t ds_vdec:2;      // downscaler: store 1 of every (ds_vdec+1) input lines
+        uint8_t ds_csync:2;     // downscaler: CSync on HSYNC (0=off, 1=XOR, 2=AND)
+        uint32_t misc_rsv:3;
     } __attribute__((packed, __may_alias__));
     uint32_t data;
 } misc_config_reg;

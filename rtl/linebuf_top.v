@@ -35,6 +35,10 @@ module linebuf_top (
     input [10:0] ypos_lb_next,
     input line_id,
     input lb_enable,
+    // Downscaler: store only every (ds_vdec+1)th input line, starting at
+    // input line ds_vstart. ds_vdec=0 keeps the stock behaviour.
+    input [1:0] ds_vdec,
+    input [5:0] ds_vstart,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
     output [7:0] B_linebuf,
@@ -256,21 +260,51 @@ linebuf linebuf_rgb (
     .q({R_linebuf, G_linebuf, B_linebuf})
 );
 
+reg [1:0] ds_ctr;
+reg ds_store;
+
 // Linebuffer write address calculation
 always @(posedge PCLK_CAP_i) begin
-    if (ypos_i == 0) begin
-        ypos_wraddr <= 0;
-    end else if (ypos_i != ypos_prev) begin
-        if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+    if (ds_vdec == 2'h0) begin
+        // stock: every input line goes to the next buffer
+        ds_store <= 1'b1;
+        if (ypos_i == 0) begin
             ypos_wraddr <= 0;
-        else
-            ypos_wraddr <= ypos_wraddr + 1'b1;
+        end else if (ypos_i != ypos_prev) begin
+            if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+                ypos_wraddr <= 0;
+            else
+                ypos_wraddr <= ypos_wraddr + 1'b1;
+        end
+    end else if (ypos_i != ypos_prev) begin
+        // downscaler: line ds_vstart goes to buffer 0, then every
+        // (ds_vdec+1)th line to the next buffer; lines in between (and
+        // lines above ds_vstart) are dropped
+        if (ypos_i == {5'h0, ds_vstart}) begin
+            ypos_wraddr <= 0;
+            ds_ctr <= 0;
+            ds_store <= 1'b1;
+        end else if (ds_ctr == ds_vdec) begin
+            ds_ctr <= 0;
+            if (ypos_i > {5'h0, ds_vstart}) begin
+                ds_store <= 1'b1;
+                if (ypos_wraddr == NUM_LINE_BUFFERS-1)
+                    ypos_wraddr <= 0;
+                else
+                    ypos_wraddr <= ypos_wraddr + 1'b1;
+            end else begin
+                ds_store <= 1'b0;
+            end
+        end else begin
+            ds_ctr <= ds_ctr + 1'b1;
+            ds_store <= 1'b0;
+        end
     end
 
     xpos_wraddr <= xpos_i;
     ypos_prev <= ypos_i;
     linebuf_wrdata <= {R_i, G_i, B_i};
-    linebuf_wren <= DE_i & datavalid_i;
+    linebuf_wren <= DE_i & datavalid_i & ds_store;
 end
 
 end

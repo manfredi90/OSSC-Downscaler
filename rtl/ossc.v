@@ -80,6 +80,10 @@ assign hw_reset_n = sys_ctrl[0];   //HDMI_TX_RST_N in v1.2 PCB
 wire [31:0] hv_in_config, hv_in_config2, hv_in_config3, hv_out_config, hv_out_config2, hv_out_config3, xy_out_config, xy_out_config2;
 wire [31:0] misc_config, sl_config, sl_config2, sl_config3;
 
+// Downscaler controls (misc_config reserved bits)
+wire [1:0] ds_vdec = misc_config[26:25];    // store 1 of every (ds_vdec+1) input lines
+wire [1:0] ds_csync = misc_config[28:27];   // 0=off, 1=XOR, 2=AND (CSync on HSYNC)
+
 wire pll_clkout, pll_clkswitch, pll_locked;
 wire clkmux_clkout;
 
@@ -330,7 +334,13 @@ always @(posedge pclk_out) begin
         {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {R_sc, G_sc, B_sc};
     end
 
-    HDMI_TX_HS <= HSYNC_sc;
+    // Sync combiner for RGBS (SCART): composite sync is sent on the HSYNC
+    // line, which an HDMI-VGA DAC reproduces on VGA pin 13. Syncs are active low.
+    case (ds_csync)
+        2'h1: HDMI_TX_HS <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
+        2'h2: HDMI_TX_HS <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
+        default: HDMI_TX_HS <= HSYNC_sc;
+    endcase
     HDMI_TX_VS <= VSYNC_sc;
     HDMI_TX_DE <= DE_sc;
 end
@@ -459,6 +469,7 @@ scanconverter #(
     .sl_config3(sl_config3),
     .testpattern_enable(~enable_sc),
     .lb_enable(enable_sc),
+    .ds_vdec(ds_vdec),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),
     .ext_R_i(8'h00),

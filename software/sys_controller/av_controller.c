@@ -559,6 +559,8 @@ void update_sc_config()
     misc_config.shmask_iv_y = shmask_data_arr_ptr->iv_y;
     misc_config.lumacode_mode = lc_cfg_arr[avconfig->lumacode_mode].mode;
     misc_config.panasonic_hack = avconfig->panasonic_hack;
+    misc_config.ds_vdec = vm_conf.ds_vdec;
+    misc_config.ds_csync = vm_conf.ds_csync;
     /*misc_config.lm_deint_mode = 0;
     misc_config.nir_even_offset = 0;*/
 
@@ -605,7 +607,7 @@ void update_sc_config()
     sl_config3.sl_hybr_str = avconfig->sl_hybr_str;
 
     // disable scanlines if configured so
-    if (((avconfig->sl_mode == 1) && (!vm_conf.y_rpt)) || (avconfig->sl_mode == 0)) {
+    if (((avconfig->sl_mode == 1) && (!vm_conf.y_rpt)) || (avconfig->sl_mode == 0) || vm_conf.ds_vdec) {
         sl_config.sl_l_overlay = 0;
         sl_config3.sl_c_overlay = 0;
     }
