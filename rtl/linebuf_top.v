@@ -478,7 +478,7 @@ reg ublend1;
 
 // blend accumulator: one line of units, 9 bits per channel (RGB: 768
 // pixels, 4:2:2: 768 pixel pairs)
-reg [35:0] acc_mem [0:767] /* synthesis ramstyle = "M9K" */;
+(* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:767];   // 3 x (256 x 36)
 reg [35:0] acc_q;
 
 always @(posedge PCLK_CAP_i) begin

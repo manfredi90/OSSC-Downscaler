@@ -11,16 +11,20 @@ extern alt_u32 sys_ctrl;
 
 alt_u32 sd_timer_ts;
 
+// Downscaler firmware: the SD card SPI controller is removed from the FPGA
+// (to free logic) and SD card functions are not used. These stubs never
+// touch the hardware: writes are dropped and reads return 0xFF (no card),
+// so any SD access fails cleanly.
 void SPI_Init (void) {
-    I2C_init(SD_SPI_BASE,ALT_CPU_FREQ,400000);
 }
 
-void __attribute__((noinline, flatten, __section__(".text_bram"))) SPI_W(const BYTE *wd, int len) {
-    SPI_write(SD_SPI_BASE, wd, len);
+void SPI_W(const BYTE *wd, int len) {
 }
 
-void __attribute__((noinline, flatten, __section__(".text_bram"))) SPI_R(BYTE *rd, int len) {
-    SPI_read(SD_SPI_BASE, rd, len);
+void SPI_R(BYTE *rd, int len) {
+    int i;
+    for (i=0; i<len; i++)
+        rd[i] = 0xFF;
 }
 
 void SPI_WW(BYTE d) {
@@ -50,11 +54,9 @@ inline void __attribute__((flatten, __section__(".text_bram"))) SPI_CS_High (voi
 }
 
 inline void SPI_Freq_High (void) {
-    I2C_init(SD_SPI_BASE,ALT_CPU_FREQ,ALT_CPU_FREQ/SCL_MIN_CLKDIV);
 }
 
 inline void SPI_Freq_Low (void) {
-    I2C_init(SD_SPI_BASE,ALT_CPU_FREQ,400000);
 }
 
 int __attribute__((noinline, flatten, __section__(".text_bram"))) SPI_Timer_On (WORD ms) {

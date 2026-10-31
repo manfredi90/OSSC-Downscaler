@@ -68,6 +68,9 @@ wire tvp_vsync_type = sys_ctrl[10];
 wire pll_bypass = sys_ctrl[9];
 wire remote_event = sys_ctrl[8];
 assign SD_DAT[3] = sys_ctrl[7]; //SD_SPI_SS_N
+// SD card SPI controller removed (SD card not used by the downscaler firmware)
+assign SD_CLK = 1'b0;
+assign SD_CMD = 1'bz;
 assign LCD_CS_N = sys_ctrl[6];
 assign LCD_RS = sys_ctrl[5];
 wire lcd_bl_on = sys_ctrl[4];    //hw_reset_n in v1.2 PCB
@@ -455,9 +458,6 @@ sys sys_inst(
     .i2c_opencores_0_export_scl_pad_io      (scl),
     .i2c_opencores_0_export_sda_pad_io      (sda),
     .i2c_opencores_0_export_spi_miso_pad_i  (1'b0),
-    .i2c_opencores_1_export_scl_pad_io      (SD_CLK),
-    .i2c_opencores_1_export_sda_pad_io      (SD_CMD),
-    .i2c_opencores_1_export_spi_miso_pad_i  (SD_DAT[0]),
     .pio_0_sys_ctrl_out_export              (sys_ctrl),
     .pio_1_controls_in_export               (controls),
     .sc_config_0_sc_if_fe_status_i          ({ds_fperiod_lo, ds_resync_cnt, wd_kill, TVP_sync_active, TVP_fe_interlace, TVP_fe_vtotal}),
