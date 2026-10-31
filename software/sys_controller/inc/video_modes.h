@@ -179,6 +179,8 @@ typedef struct {
     uint8_t ds_hfilt;       // 0 = off, 1 = avg 2, 2 = avg 3 ADC samples
     uint8_t ds_vblend;
     uint16_t ds_h_synclen;  // output hsync length (9 bits)
+    uint8_t ds_ilace;       // 480i: one output field per input frame
+    uint8_t ds_field_cfg;   // {B_n, B_st, A_n, A_st} 2 bits each
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.

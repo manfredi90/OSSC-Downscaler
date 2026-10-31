@@ -398,7 +398,7 @@ status_t get_status(tvp_sync_input_t syncinput)
         }
 
         if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
-            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off))
+            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -635,7 +635,7 @@ void update_sc_config()
         uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
 
         hv_out_config.h_synclen = h_synclen & 0xff;
-        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_vblend << 2)) : 0;
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_ilace << 3) | (vm_conf.ds_field_cfg << 8)) : 0;
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
                           (((h_synclen >> 8) & 1) << 2) |

@@ -91,7 +91,8 @@ wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf
 // sl_config (scanlines removed) now carries downscaler filter controls,
 // sl_config2 the extension bits of the wide horizontal output timings
 wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
-wire ds_vblend = sl_config[2];              // line blending
+wire ds_ilace = sl_config[3];               // interlaced (480i) output, one field per input frame
+wire [7:0] ds_field_cfg = sl_config[15:8];  // per-field line selection/blending (see linebuf_top)
 
 wire pll_clkout, pll_clkswitch, pll_locked;
 wire clkmux_clkout;
@@ -527,7 +528,8 @@ scanconverter #(
     .ds_vdec(ds_vdec),
     .lb_layout(ds_lb_layout),
     .ds_hfilt(ds_hfilt),
-    .ds_vblend(ds_vblend),
+    .ds_field_cfg(ds_field_cfg),
+    .ds_ilace(ds_ilace),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),
     .ext_R_i(8'h00),

@@ -53,7 +53,8 @@ module scanconverter (
     input [1:0] ds_vdec,
     input [1:0] lb_layout,
     input [1:0] ds_hfilt,
-    input ds_vblend,
+    input [7:0] ds_field_cfg,
+    input ds_ilace,
     input ext_sync_mode,
     input ext_frame_change_i,
     input [7:0] ext_R_i,
@@ -185,6 +186,10 @@ wire [11:0] LT_BOX_Y_STOP  = (lt_mode == `LT_POS_TOPLEFT) ? (V_ACTIVE/`LT_HEIGHT
 
 
 reg frame_change_sync1_reg, frame_change_sync2_reg, frame_change_prev, frame_change_resync;
+// Downscaler 480i: every input frame becomes one output field. in_field is
+// the parity of the current input frame; the output is (re)aligned only on
+// field A frames, so that field A always ends up in the ODD output field.
+reg in_field;
 wire frame_change = frame_change_sync2_reg;
 
 reg [12:0] h_cnt;
@@ -362,7 +367,9 @@ linebuf_top #(
     .ds_vstart(DS_VSTART),
     .lb_layout(lb_layout),
     .ds_hfilt(ds_hfilt),
-    .ds_vblend(ds_vblend),
+    .ds_field_cfg(ds_field_cfg),
+    .ds_ilace(ds_ilace),
+    .in_field(in_field),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),
     .B_linebuf(B_linebuf),
@@ -398,7 +405,10 @@ always @(posedge PCLK_OUT_i) begin
     frame_change_sync2_reg <= frame_change_sync1_reg;
     frame_change_prev <= frame_change_sync2_reg;
 
-    frame_change_resync <= ~frame_change_prev & frame_change & ~(((v_cnt == V_STARTLINE_PREV) & (h_cnt > H_TOTAL-128)) | ((v_cnt == V_STARTLINE) & (h_cnt < 128)));
+    frame_change_resync <= ~frame_change_prev & frame_change & ~(((v_cnt == V_STARTLINE_PREV) & (h_cnt > H_TOTAL-128)) | ((v_cnt == V_STARTLINE) & (h_cnt < 128))) &
+                           (~ds_ilace | in_field);     // 480i: next frame is field A
+    if (~frame_change_prev & frame_change)
+        in_field <= ds_ilace ? ~in_field : 1'b0;
 end
 
 // H/V counters

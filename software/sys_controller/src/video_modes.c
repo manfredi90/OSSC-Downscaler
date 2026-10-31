@@ -159,29 +159,48 @@ typedef struct {
     uint8_t x_rpt;              // each sample lasts (x_rpt+1) output clocks
     uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
-    uint8_t v_start;            // first stored input line
+    uint8_t v_start;            // 240p: picked line; 480i: first line of the first group
     uint16_t in_crop;           // source pixels cropped on each side
     uint8_t ar43;               // 720p "Center 4:3" variant
     uint8_t hfilt;              // ADC samples (hfilt+1) per stored sample, averaged
+    uint8_t ilace;              // 480i output: one field per input frame
+    uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
-    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, 0, "720p>240p" },
+    /* ---- 240p output (262 lines) ---- */
+    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, 0, 0, 0, 0, "720p>240p" },
     //   filtered: ADC 1965/line (88.4MHz, 3x), 508 samples averaged over 3, 5625x262
-    { HDMI_720p60,      750,  655, 5625, 262, 2, 8, 2, 19, 1,   0, 0, 2, "720p>240p" },
+    { HDMI_720p60,      750,  655, 5625, 262, 2, 8, 2, 19, 1,   0, 0, 2, 0, 0, 0, "720p>240p" },
     // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262
-    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, 0, "720p 4:3" },
+    { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, 0, 0, 0, 0, "720p 4:3" },
     //   filtered: ADC 1572/line (70.7MHz, 2x), 457 samples averaged over 2, 4500x262
-    { HDMI_720p60,      750,  786, 4500, 262, 2, 7, 2, 19, 1, 160, 1, 1, "720p 4:3" },
+    { HDMI_720p60,      750,  786, 4500, 262, 2, 7, 2, 19, 1, 160, 1, 1, 0, 0, 0, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
-    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, 0, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
     //   filtered: ADC 2096/line (66MHz, 2x), 1048 samples averaged over 2, 4200x262
-    { HDMI_480p60,      525, 1048, 4200, 262, 1, 3, 1, 16, 0,   0, 0, 1, "480p>240p" },
+    { HDMI_480p60,      525, 1048, 4200, 262, 1, 3, 1, 16, 0,   0, 0, 1, 0, 0, 0, "480p>240p" },
     // 640x480 VGA: same timing, odd lines
-    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, 0, "VGA>240p" },
-    { HDMI_640x480p60,  525, 1048, 4200, 262, 1, 3, 1, 16, 1,   0, 0, 1, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, 0, 0, 0, 0, "VGA>240p" },
+    { HDMI_640x480p60,  525, 1048, 4200, 262, 1, 3, 1, 16, 1,   0, 0, 1, 0, 0, 0, "VGA>240p" },
+
+    /* ---- 480i output (525 lines, 2 fields of 262.5) ----
+     * Each input frame becomes one field: field A (upper) takes line 0 of every
+     * group, field B line 1 (480p) or the average of lines 1-2 (720p: rows at
+     * 1.5-line spacing). Frame lock: ADC * in_v_total * 2 == out_h * 525. */
+    // 720p: 658x750 -> 1880 (2.857 input lines per output line)
+    { HDMI_720p60,      750,  658, 1880, 525, 2, 2, 2, 19, 0,   0, 0, 0, 1, 2, 2, "720p>480i" },
+    { HDMI_720p60,      750,  658, 5640, 525, 2, 8, 2, 19, 0,   0, 0, 2, 1, 2, 2, "720p>480i" },
+    { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
+    { HDMI_720p60,      750,  784, 4480, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
+    // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
+    { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
+    { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
+    // VGA: native sampling (800/line, 640 active)
+    { HDMI_640x480p60,  525,  800, 1600, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "VGA>480i" },
+    { HDMI_640x480p60,  525,  800, 3200, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "VGA>480i" },
 };
 
 #define DS_OUT_V_SYNCLEN    3
@@ -191,21 +210,29 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     unsigned i;
     const ds_mode_t *match = NULL;
     uint8_t want_hfilt = !cc->ds_hfilt_off;
+    uint8_t want_ilace = !!cc->ds_480i;
+    unsigned pass;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
 
-    // pick the variant with the requested filter setting, else any variant
-    for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-        if ((ds_modes[i].vic == preset->vic) &&
-            ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
-            if (!!ds_modes[i].hfilt == want_hfilt)
-                return &ds_modes[i];
-            if (!match)
-                match = &ds_modes[i];
+    // pick the variant with the requested output (240p/480i) and filter
+    // setting; fall back to another filter setting, then to 240p
+    for (pass=0; pass<2; pass++) {
+        for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
+            if ((ds_modes[i].vic == preset->vic) &&
+                (ds_modes[i].ilace == (pass ? 0 : want_ilace)) &&
+                ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
+                if (!!ds_modes[i].hfilt == want_hfilt)
+                    return &ds_modes[i];
+                if (!match)
+                    match = &ds_modes[i];
+            }
         }
+        if (match)
+            return match;
     }
-    return match;
+    return NULL;
 }
 
 static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
@@ -243,11 +270,11 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->ds_h_synclen = out_h_synclen;
     vm_out->timings.h_backporch = out_h_bp_min + (out_active_max-out_active)/2;
     vm_out->timings.h_total_adj = 0;
-    vm_out->timings.v_total = m->out_v_total;
-    vm_out->timings.v_active = DS_OUT_V_ACTIVE;
+    vm_out->timings.v_total = m->out_v_total;       // 525 for 480i (per frame)
+    vm_out->timings.v_active = DS_OUT_V_ACTIVE;     // per field
     vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
     vm_out->timings.v_backporch = m->out_v_backporch;
-    vm_out->timings.interlaced = 0;
+    vm_out->timings.interlaced = m->ilace;
     vm_out->type = VIDEO_SDTV;
     vm_out->ar.h = 4;
     vm_out->ar.v = 3;
@@ -261,13 +288,23 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->x_offset = 0;
     vm_conf->y_offset = 0;
     vm_conf->x_start_lb = (smp_active - out_active/rpt)/2;
-    // first stored line; with line blending, the last line of the group that
-    // contains the picked line (e.g. 720p: pick 1 -> blend lines 0-2, store at 2)
-    vm_conf->ds_vblend = !cc->ds_vblend_off;
-    if (vm_conf->ds_vblend)
-        vm_conf->y_start_lb = (m->v_start/(m->vdec+1))*(m->vdec+1) + m->vdec;
-    else
+    // Vertical line selection (see linebuf_top): y_start_lb = first line of
+    // the first group, per field: line written in the group (st) and number
+    // of lines averaged into it (n).
+    vm_conf->ds_ilace = m->ilace;
+    vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
+    if (m->ilace) {
         vm_conf->y_start_lb = m->v_start;
+        vm_conf->ds_field_cfg = (0 | (1<<2)) | ((m->fB_st | (m->fB_n<<2)) << 4);
+    } else if (vm_conf->ds_vblend) {
+        // blend the whole group containing the picked line; for 3x-scaled 240p
+        // content the group is one source line, so nothing gets blurred
+        vm_conf->y_start_lb = (m->v_start/(m->vdec+1))*(m->vdec+1);
+        vm_conf->ds_field_cfg = m->vdec | ((m->vdec+1)<<2);
+    } else {
+        vm_conf->y_start_lb = m->v_start;
+        vm_conf->ds_field_cfg = 0 | (1<<2);
+    }
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_vdec = m->vdec;
     vm_conf->ds_lb_layout = m->lb_layout;

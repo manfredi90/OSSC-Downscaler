@@ -166,7 +166,8 @@ typedef struct {
     alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3
     alt_u8 ds_hfilt_off;    // 0 = horizontal 2:1 filter on (2x oversampling)
     alt_u8 ds_vblend_off;   // 0 = line blending on
-    alt_u8 ds_reserved[11]; // room for future options without changing the layout
+    alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
+    alt_u8 ds_reserved[10]; // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

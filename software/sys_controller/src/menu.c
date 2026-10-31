@@ -100,6 +100,7 @@ static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
+static const char* const ds_out_desc[] = { "240p", "480i" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }
@@ -268,6 +269,7 @@ MENU(menu_settings, P99_PROTECT({ \
 }))
 
 MENU(menu_downscaler, P99_PROTECT({ \
+    { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "720p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
     { "H. filter",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_hfilt_off,  OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
