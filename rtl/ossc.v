@@ -87,6 +87,7 @@ wire [31:0] misc_config_sc = {misc_config[31:25], 1'b0, 8'h0, 1'b0, misc_config[
 // Downscaler controls (misc_config reserved bits)
 wire [1:0] ds_vdec = misc_config[26:25];    // store 1 of every (ds_vdec+1) input lines
 wire [1:0] ds_csync = misc_config[28:27];   // 0=off, 1=XOR, 2=AND (CSync on HSYNC)
+wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf_top)
 
 wire pll_clkout, pll_clkswitch, pll_locked;
 wire clkmux_clkout;
@@ -519,6 +520,7 @@ scanconverter #(
     .testpattern_enable(~enable_sc),
     .lb_enable(enable_sc),
     .ds_vdec(ds_vdec),
+    .lb_layout(ds_lb_layout),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),
     .ext_R_i(8'h00),

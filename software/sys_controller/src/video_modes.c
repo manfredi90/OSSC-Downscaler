@@ -132,74 +132,110 @@ uint32_t calculate_pclk(uint32_t src_clk_hz, mode_data_t *vm_out, vm_proc_config
 }
 
 /*
- * Downscaler: 720p60 -> 240p (one stored line out of every 3 input lines).
+ * Downscaler modes.
  *
- * Output is frame-locked to the input and uses the sampling clock as is
- * (pclk_out = pclk_in), so there is no frame buffer:
- *   input : 655 samples/line (508 active) x 750 lines @ 60Hz = 29.475MHz
- *   output: 1875 clocks/line (1524 active) x 262 lines @ 60Hz = 15.72kHz
- * 655*750 == 1875*262, so the output frame lasts exactly one input frame.
+ * The output is frame-locked to the input and uses the TVP7002 sampling clock
+ * as is (pclk_out = pclk_in), so there is no frame buffer. Only one out of
+ * every (vdec+1) input lines is stored. For an exact frame lock
+ *     smp_h_total * input_v_total == out_h_total * out_v_total
+ * and the output line rate is ~15.7kHz.
  *
- * An output line lasts 750/262 = 2.86 input lines but advances 3 input lines,
- * so reading drifts ~33 input lines (11 stored lines) toward writing over the
- * frame. The 16-line downscaler buffer absorbs it: latency is ~0.7ms at the
- * top of the picture and ~0.1ms at the bottom.
+ * When an output line lasts a non-integer number of input lines, reading
+ * drifts relative to writing over the frame; the line buffer layout is chosen
+ * deep enough to absorb it (worst case 720p: ~11 stored lines -> 16 x 512).
+ * v_start / out_v_backporch were chosen with a pixel-exact simulation of the
+ * read/write timing (see commit history) to keep >= 2 lines of margin.
  */
-#define DS_720P_H_TOTAL_SMP     655
-#define DS_720P_H_ACTIVE_SMP    508
-#define DS_720P_OUT_H_TOTAL     1875
-#define DS_720P_OUT_H_SYNCLEN   139     // 4.7us
-#define DS_720P_OUT_H_BACKPORCH 168     // 5.7us
-#define DS_720P_OUT_V_TOTAL     262
-#define DS_720P_OUT_V_SYNCLEN   3
-#define DS_720P_OUT_V_BACKPORCH 19
-#define DS_720P_OUT_V_ACTIVE    240
-// First stored input line: 1 = middle line of each group of 3, which is the
-// cleanest pick for 240p content upscaled 3x to 720p.
-#define DS_720P_V_START         1
+typedef struct {
+    HDMI_Video_Type vic;        // source preset
+    uint16_t in_v_total;
+    uint16_t smp_h_total;       // samples per input line
+    uint16_t out_h_total;
+    uint16_t out_v_total;
+    uint8_t vdec;               // stored line = every (vdec+1)th input line
+    uint8_t x_rpt;              // each sample lasts (x_rpt+1) output clocks
+    uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512
+    uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
+    uint8_t v_start;            // first stored input line
+    char name[11];
+} ds_mode_t;
 
-static int is_ds_720p_source(mode_data_t *preset, mode_data_t *vm_in) {
-    return (preset->group == GROUP_720P) &&
-           !vm_in->timings.interlaced &&
-           (vm_in->timings.v_hz_x100 > 5800) && (vm_in->timings.v_hz_x100 < 6200);
+static const ds_mode_t ds_modes[] = {
+    // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
+    { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1, "720p>240p" },
+    // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
+    { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0, "480p>240p" },
+    // 640x480 VGA: same timing, odd lines
+    { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1, "VGA>240p" },
+};
+
+#define DS_OUT_V_SYNCLEN    3
+#define DS_OUT_V_ACTIVE     240
+
+static const ds_mode_t* find_ds_mode(mode_data_t *preset, mode_data_t *vm_in) {
+    unsigned i;
+
+    if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
+        return NULL;
+
+    for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
+        if (ds_modes[i].vic == preset->vic)
+            return &ds_modes[i];
+    }
+    return NULL;
 }
 
-static void setup_ds_720p_240p(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
-    // Resample horizontal timings: 1650 -> 655 samples per line
-    vm_in->timings.h_synclen = (vm_in->timings.h_synclen*DS_720P_H_TOTAL_SMP + vm_in->timings.h_total/2)/vm_in->timings.h_total;
-    vm_in->timings.h_backporch = (vm_in->timings.h_backporch*DS_720P_H_TOTAL_SMP + vm_in->timings.h_total/2)/vm_in->timings.h_total;
-    vm_in->timings.h_active = DS_720P_H_ACTIVE_SMP;
-    vm_in->timings.h_total = DS_720P_H_TOTAL_SMP;
+static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
+    uint16_t in_h_total = vm_in->timings.h_total;
+    uint16_t smp_active, out_h_synclen, out_h_bp_min, out_h_fp_min, out_active_max, out_active, rpt;
+
+    // Resample horizontal timings to smp_h_total samples per line
+    smp_active = (vm_in->timings.h_active*m->smp_h_total + in_h_total/2)/in_h_total;
+    vm_in->timings.h_synclen = (vm_in->timings.h_synclen*m->smp_h_total + in_h_total/2)/in_h_total;
+    vm_in->timings.h_backporch = (vm_in->timings.h_backporch*m->smp_h_total + in_h_total/2)/in_h_total;
+    vm_in->timings.h_active = smp_active;
+    vm_in->timings.h_total = m->smp_h_total;
     vm_in->timings.h_total_adj = 0;
 
     memcpy(vm_out, vm_in, sizeof(mode_data_t));
 
-    // 15.72kHz output timings (clocks at 29.475MHz)
-    vm_out->timings.h_total = DS_720P_OUT_H_TOTAL;
-    vm_out->timings.h_active = 3*DS_720P_H_ACTIVE_SMP;
-    vm_out->timings.h_synclen = DS_720P_OUT_H_SYNCLEN;
-    vm_out->timings.h_backporch = DS_720P_OUT_H_BACKPORCH;
+    // 15kHz horizontal timings, in fractions of the 63.6us line:
+    // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
+    rpt = m->x_rpt+1;
+    out_h_synclen = (m->out_h_total*74 + 500)/1000;
+    out_h_bp_min = (m->out_h_total*81 + 500)/1000;
+    out_h_fp_min = (m->out_h_total*22 + 500)/1000;
+    out_active_max = ((m->out_h_total - out_h_synclen - out_h_bp_min - out_h_fp_min)/rpt)*rpt;
+    out_active = smp_active*rpt;
+    if (out_active > out_active_max)
+        out_active = out_active_max;    // crop the sides evenly
+
+    vm_out->timings.h_total = m->out_h_total;
+    vm_out->timings.h_active = out_active;
+    vm_out->timings.h_synclen = out_h_synclen;
+    vm_out->timings.h_backporch = out_h_bp_min + (out_active_max-out_active)/2;
     vm_out->timings.h_total_adj = 0;
-    vm_out->timings.v_total = DS_720P_OUT_V_TOTAL;
-    vm_out->timings.v_active = DS_720P_OUT_V_ACTIVE;
-    vm_out->timings.v_synclen = DS_720P_OUT_V_SYNCLEN;
-    vm_out->timings.v_backporch = DS_720P_OUT_V_BACKPORCH;
+    vm_out->timings.v_total = m->out_v_total;
+    vm_out->timings.v_active = DS_OUT_V_ACTIVE;
+    vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
+    vm_out->timings.v_backporch = m->out_v_backporch;
     vm_out->timings.interlaced = 0;
     vm_out->type = VIDEO_SDTV;
     vm_out->ar.h = 4;
     vm_out->ar.v = 3;
     vm_out->vic = HDMI_Unknown;
 
-    vm_conf->x_rpt = 2;     // each sample lasts 3 output clocks
+    vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
     vm_conf->h_skip = 0;
-    vm_conf->x_size = vm_out->timings.h_active;
-    vm_conf->y_size = vm_out->timings.v_active;
+    vm_conf->x_size = out_active;
+    vm_conf->y_size = DS_OUT_V_ACTIVE;
     vm_conf->x_offset = 0;
     vm_conf->y_offset = 0;
-    vm_conf->x_start_lb = 0;
-    vm_conf->y_start_lb = DS_720P_V_START;  // = first stored line in downscaler mode
-    vm_conf->ds_vdec = 2;
+    vm_conf->x_start_lb = (smp_active - out_active/rpt)/2;
+    vm_conf->y_start_lb = m->v_start;   // = first stored line in downscaler mode
+    vm_conf->ds_vdec = m->vdec;
+    vm_conf->ds_lb_layout = m->lb_layout;
     vm_conf->ds_csync = cc->ds_csync;
 
     vm_conf->framesync_line = 0;
@@ -208,7 +244,7 @@ static void setup_ds_720p_240p(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *
     vm_conf->tx_pixelrep = 0;
     vm_conf->hdmitx_pixr_ifr = 0;
 
-    strncpy(vm_out->name, "720p>240p", 11);
+    strncpy(vm_out->name, m->name, 11);
 
     if (vm_out->vic == HDMI_Unknown)
         vm_out->vic = cc->default_vic;
@@ -330,9 +366,12 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
 
     memset(vm_conf, 0, sizeof(vm_proc_config_t));
 
-    if (is_ds_720p_source(mode_preset, vm_in)) {
-        setup_ds_720p_240p(cc, vm_in, vm_out, vm_conf);
-        return mindiff_id;
+    {
+        const ds_mode_t *ds = find_ds_mode(mode_preset, vm_in);
+        if (ds) {
+            setup_ds_mode(ds, cc, vm_in, vm_out, vm_conf);
+            return mindiff_id;
+        }
     }
 
     mindiff_lm &= mode_preset->flags;    //ensure L2 mode uniqueness

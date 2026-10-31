@@ -48,6 +48,7 @@ module scanconverter (
     input testpattern_enable,
     input lb_enable,
     input [1:0] ds_vdec,
+    input [1:0] lb_layout,
     input ext_sync_mode,
     input ext_frame_change_i,
     input [7:0] ext_R_i,
@@ -354,6 +355,7 @@ linebuf_top #(
     .lb_enable(lb_enable),
     .ds_vdec(ds_vdec),
     .ds_vstart(DS_VSTART),
+    .lb_layout(lb_layout),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),
     .B_linebuf(B_linebuf),
@@ -375,8 +377,8 @@ linebuf_top #(
 
 videogen vg0 (
     .pclk           (PCLK_OUT_i),
-    .xpos           (xpos_pp[PP_TP_START]),
-    .ypos           (ypos_pp[PP_TP_START]),
+    .xpos           (xpos_pp[PP_TP_START] >> 1),      // 1440x240 test pattern ->
+    .ypos           ({ypos_pp[PP_TP_START][9:0], 1'b0}),  // 720x480 generator coords
     .R_out          (R_vg),
     .G_out          (G_vg),
     .B_out          (B_vg)

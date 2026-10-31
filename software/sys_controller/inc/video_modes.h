@@ -175,6 +175,7 @@ typedef struct {
     // downscaler
     uint8_t ds_vdec;
     uint8_t ds_csync;
+    uint8_t ds_lb_layout;
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.

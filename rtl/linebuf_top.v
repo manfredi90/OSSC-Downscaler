@@ -39,6 +39,9 @@ module linebuf_top (
     // input line ds_vstart. ds_vdec=0 keeps the stock behaviour.
     input [1:0] ds_vdec,
     input [5:0] ds_vstart,
+    // Line buffer layout: 0 = 2 x 2048 px (stock), 1 = 8 x 1024 px,
+    // 2 = 16 x 512 px (deep, for large read/write drift)
+    input [1:0] lb_layout,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
     output [7:0] B_linebuf,
@@ -244,12 +247,29 @@ reg [10:0] xpos_wraddr;
 reg [23:0] linebuf_wrdata;
 reg linebuf_wren;
 
-// 8192-pixel RAM: stock modes use 2 lines x 2048 pixels, the downscaler uses
-// 16 lines x 512 pixels (deep enough to absorb the read/write drift of a
-// non-integer output line period, e.g. 750 input lines -> 262 output lines).
-wire ds_mode = (ds_vdec != 2'h0);
-wire [12:0] linebuf_wraddr = ds_mode ? {ypos_wraddr[3:0], xpos_wraddr[8:0]} : {1'b0, ypos_wraddr[0], xpos_wraddr[10:0]};
-wire [12:0] linebuf_rdaddr = ds_mode ? {ypos_lb[3:0], xpos_lb[8:0]} : {1'b0, ypos_lb[0], xpos_lb[10:0]};
+// 8192-pixel RAM shared by all layouts. Deeper layouts absorb the read/write
+// drift of a non-integer output line period (e.g. 750 input lines -> 262).
+reg [12:0] linebuf_wraddr, linebuf_rdaddr;
+reg wr_x_ok;
+always @(*) begin
+    case (lb_layout)
+        2'h1: begin
+            linebuf_wraddr = {ypos_wraddr[2:0], xpos_wraddr[9:0]};
+            linebuf_rdaddr = {ypos_lb[2:0], xpos_lb[9:0]};
+            wr_x_ok = (xpos_i[10] == 1'b0);
+        end
+        2'h2: begin
+            linebuf_wraddr = {ypos_wraddr[3:0], xpos_wraddr[8:0]};
+            linebuf_rdaddr = {ypos_lb[3:0], xpos_lb[8:0]};
+            wr_x_ok = (xpos_i[10:9] == 2'b00);
+        end
+        default: begin
+            linebuf_wraddr = {1'b0, ypos_wraddr[0], xpos_wraddr[10:0]};
+            linebuf_rdaddr = {1'b0, ypos_lb[0], xpos_lb[10:0]};
+            wr_x_ok = 1'b1;
+        end
+    endcase
+end
 
 
 linebuf linebuf_rgb (
@@ -308,7 +328,7 @@ always @(posedge PCLK_CAP_i) begin
     xpos_wraddr <= xpos_i;
     ypos_prev <= ypos_i;
     linebuf_wrdata <= {R_i, G_i, B_i};
-    linebuf_wren <= DE_i & datavalid_i & ds_store & ~(ds_mode & xpos_i[10:9] != 2'b00);
+    linebuf_wren <= DE_i & datavalid_i & ds_store & wr_x_ok;
 end
 
 end

@@ -575,6 +575,7 @@ void update_sc_config()
     misc_config.lumacode_mode = lc_cfg_arr[avconfig->lumacode_mode].mode;
     misc_config.panasonic_hack = avconfig->panasonic_hack;
     misc_config.ds_vdec = vm_conf.ds_vdec;
+    misc_config.lb_layout = vm_conf.ds_lb_layout;
     misc_config.ds_csync = avconfig->ds_csync;  // applies to every output (incl. test pattern)
     /*misc_config.lm_deint_mode = 0;
     misc_config.nir_even_offset = 0;*/
