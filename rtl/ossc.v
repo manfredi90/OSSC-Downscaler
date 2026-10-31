@@ -112,7 +112,8 @@ wire pclk_out = PCLK_sc;
 
 reg [7:0] po_reset_ctr = 0;
 reg po_reset_n = 1'b0;
-wire jtagm_reset_req, ndmreset_req;
+wire jtagm_reset_req = 1'b0;   // JTAG debug master removed
+wire ndmreset_req;
 reg ndmreset_ack, ndmreset_pulse;
 wire sys_reset_n = (po_reset_n & ~jtagm_reset_req & ~ndmreset_pulse);
 
@@ -448,7 +449,6 @@ sys sys_inst(
     .ibex_0_ndm_ndmreset_ack_i              (ndmreset_ack),
     .ibex_0_config_boot_addr_i              (32'h020D0000),
     .ibex_0_config_core_sleep_o             (),
-    .master_0_master_reset_reset            (jtagm_reset_req),
     .i2c_opencores_0_export_scl_pad_io      (scl),
     .i2c_opencores_0_export_sda_pad_io      (sda),
     .i2c_opencores_0_export_spi_miso_pad_i  (1'b0),
@@ -493,9 +493,6 @@ sys sys_inst(
     .pll_reconfig_0_pll_reconfig_if_scandone     (pll_scandone)
 );
 
-// These do not work in current Quartus version (24.1) and a patch file (scripts/qsys.patch) must be used after Qsys generation instead
-defparam
-    sys_inst.master_0.fifo.FIFO_DEPTH = 1024;
 
 scanconverter #(
     .EMIF_ENABLE(0),

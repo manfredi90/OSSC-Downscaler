@@ -158,12 +158,9 @@ void read_controls() {
         btn_code = 0;
     }
 
-    uart_rx_ret = altera_avalon_jtag_uart_read(&jtag_uart_0, uart_rx_buf_ptr, UART_RX_BUF_SIZE-(uart_rx_buf_ptr-uart_rx_buf), O_NONBLOCK);
-    if (uart_rx_ret > 0) {
-        // echo
-        altera_avalon_jtag_uart_write(&jtag_uart_0, uart_rx_buf_ptr, uart_rx_ret, 0);
-        uart_rx_buf_ptr += uart_rx_ret;
-    }
+    // The downscaler firmware has no JTAG UART (removed to free FPGA logic):
+    // the UART command interface is not available.
+    uart_rx_ret = 0;
 }
 
 int parse_control()

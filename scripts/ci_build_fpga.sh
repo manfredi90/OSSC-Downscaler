@@ -19,9 +19,6 @@ qsys-generate sys.qsys \
     --part=EP4CE15E22C8 \
     --search-path="$(pwd)/ip/**/*,\$"
 
-# Same tweak as scripts/qsys.patch (JTAG master FIFO depth), tolerant of
-# line-number differences between Quartus versions.
-sed -i 's/\.FIFO_DEPTH          (64),/.FIFO_DEPTH          (1024),/' sys/synthesis/submodules/sys_master_0.v || true
 
 # Fitter seed sweep: stop at the first seed that meets timing.
 SEEDS="${SEEDS:-1 2 3 4 5 6}"

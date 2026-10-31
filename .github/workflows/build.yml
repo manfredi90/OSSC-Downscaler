@@ -28,6 +28,8 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init --recursive --depth 1
+          # downscaler firmware patches to submodules
+          git -C ip/ibex_qsys apply ../../scripts/patches/ibex_qsys-no-debug.patch
 
       - name: Install toolchain
         run: |
