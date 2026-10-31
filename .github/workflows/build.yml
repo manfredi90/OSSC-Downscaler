@@ -8,8 +8,6 @@ on:
 env:
   # Quartus Lite with Cyclone IV device support
   QUARTUS_IMAGE: raetro/quartus:21.1
-  FW_VERSION: "1.22"
-  FW_SUFFIX: "2nd"
 
 permissions:
   contents: write
@@ -58,10 +56,14 @@ jobs:
 
       - name: Create SD card image
         run: |
+          # version comes from DS_VERSION in firmware.h; file name carries it
+          DS_VERSION=$(sed -n 's/^#define DS_VERSION *"\(.*\)"/\1/p' software/sys_controller/inc/firmware.h)
+          echo "Downscaler version: $DS_VERSION"
           gcc tools/create_fw_img.c -o tools/create_fw_img
           cd output_files
-          ../tools/create_fw_img ossc_2nd.rbf ../software/sys_controller/mem_init/flash.bin 0x50000 "$FW_VERSION" "$FW_SUFFIX"
-          python3 ../scripts/check_fw_img.py "ossc_${FW_VERSION}-${FW_SUFFIX}.bin"
+          ../tools/create_fw_img ossc_2nd.rbf ../software/sys_controller/mem_init/flash.bin 0x50000 "$DS_VERSION" ds
+          mv "ossc_${DS_VERSION}-ds.bin" "ossc_ds_v${DS_VERSION}.bin"
+          python3 ../scripts/check_fw_img.py "ossc_ds_v${DS_VERSION}.bin"
 
       - name: Timing summary
         if: always()
@@ -75,7 +77,7 @@ jobs:
         if: always()
         run: |
           mkdir -p /tmp/out && cd /tmp/out
-          cp "$GITHUB_WORKSPACE"/output_files/ossc_*-*.bin . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE"/output_files/ossc_ds_v*.bin . 2>/dev/null || true
           cp "$GITHUB_WORKSPACE"/output_files/*.summary "$GITHUB_WORKSPACE"/output_files/*.rpt . 2>/dev/null || true
           cp "$GITHUB_WORKSPACE"/ci_logs/* "$GITHUB_WORKSPACE"/output_files/timing.txt . 2>/dev/null || true
           echo "${GITHUB_SHA} run ${GITHUB_RUN_ID} ${{ job.status }}" > BUILD_INFO.txt
@@ -89,7 +91,7 @@ jobs:
         with:
           name: ossc-2nd-fw
           path: |
-            output_files/ossc_*-*.bin
+            output_files/ossc_ds_v*.bin
             output_files/*.rpt
             output_files/*.summary
           if-no-files-found: warn

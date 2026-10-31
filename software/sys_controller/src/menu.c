@@ -267,7 +267,6 @@ MENU(menu_settings, P99_PROTECT({ \
 
 MENU(menu_downscaler, P99_PROTECT({ \
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
-    { LNG("Sampling phase","ｻﾝﾌﾟﾘﾝｸﾞﾌｪｰｽﾞ"),     OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_phase,     OPT_WRAP, 0, SAMPLER_PHASE_MAX, sampler_phase_disp } } },
 }))
 
 
