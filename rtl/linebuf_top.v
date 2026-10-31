@@ -244,8 +244,12 @@ reg [10:0] xpos_wraddr;
 reg [23:0] linebuf_wrdata;
 reg linebuf_wren;
 
-wire [16:0] linebuf_wraddr = {ypos_wraddr[($clog2(NUM_LINE_BUFFERS)-1):0], xpos_wraddr};
-wire [16:0] linebuf_rdaddr = {ypos_lb[($clog2(NUM_LINE_BUFFERS)-1):0], xpos_lb[10:0]};
+// 8192-pixel RAM: stock modes use 2 lines x 2048 pixels, the downscaler uses
+// 16 lines x 512 pixels (deep enough to absorb the read/write drift of a
+// non-integer output line period, e.g. 750 input lines -> 262 output lines).
+wire ds_mode = (ds_vdec != 2'h0);
+wire [12:0] linebuf_wraddr = ds_mode ? {ypos_wraddr[3:0], xpos_wraddr[8:0]} : {1'b0, ypos_wraddr[0], xpos_wraddr[10:0]};
+wire [12:0] linebuf_rdaddr = ds_mode ? {ypos_lb[3:0], xpos_lb[8:0]} : {1'b0, ypos_lb[0], xpos_lb[10:0]};
 
 
 linebuf linebuf_rgb (
@@ -304,7 +308,7 @@ always @(posedge PCLK_CAP_i) begin
     xpos_wraddr <= xpos_i;
     ypos_prev <= ypos_i;
     linebuf_wrdata <= {R_i, G_i, B_i};
-    linebuf_wren <= DE_i & datavalid_i & ds_store;
+    linebuf_wren <= DE_i & datavalid_i & ds_store & ~(ds_mode & xpos_i[10:9] != 2'b00);
 end
 
 end

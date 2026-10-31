@@ -49,10 +49,10 @@ module linebuf (
 	q);
 
 	input	[23:0]  data;
-	input	[11:0]  rdaddress;
+	input	[12:0]  rdaddress;
 	input	  rdclock;
 	input	  rdclocken;
-	input	[11:0]  wraddress;
+	input	[12:0]  wraddress;
 	input	  wrclock;
 	input	  wrclocken;
 	input	  wren;
@@ -103,14 +103,14 @@ module linebuf (
 		altsyncram_component.clock_enable_output_b = "NORMAL",
 		altsyncram_component.intended_device_family = "Cyclone IV E",
 		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 4096,
-		altsyncram_component.numwords_b = 4096,
+		altsyncram_component.numwords_a = 8192,
+		altsyncram_component.numwords_b = 8192,
 		altsyncram_component.operation_mode = "DUAL_PORT",
 		altsyncram_component.outdata_aclr_b = "NONE",
 		altsyncram_component.outdata_reg_b = "CLOCK1",
 		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.widthad_a = 12,
-		altsyncram_component.widthad_b = 12,
+		altsyncram_component.widthad_a = 13,
+		altsyncram_component.widthad_b = 13,
 		altsyncram_component.width_a = 24,
 		altsyncram_component.width_b = 24,
 		altsyncram_component.width_byteena_a = 1;

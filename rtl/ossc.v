@@ -440,7 +440,7 @@ defparam
 
 scanconverter #(
     .EMIF_ENABLE(0),
-    .NUM_LINE_BUFFERS(2)
+    .NUM_LINE_BUFFERS(16)   // stock modes only use the LSB (2 lines), downscaler uses all 16
   ) scanconverter_inst (
     .PCLK_CAP_i(TVP_PCLK_i),
     .PCLK_OUT_i(clkmux_clkout),
