@@ -17,27 +17,6 @@
          type = "int";
       }
    }
-   element hw_crc32_0
-   {
-      datum _sortIndex
-      {
-         value = "8";
-         type = "int";
-      }
-   }
-   element hw_crc32_0.avalon_slave
-   {
-      datum _lockedAddress
-      {
-         value = "1";
-         type = "boolean";
-      }
-      datum baseAddress
-      {
-         value = "135168";
-         type = "String";
-      }
-   }
    element i2c_opencores_0
    {
       datum _sortIndex
@@ -417,7 +396,6 @@
   <parameter name="inputClockFrequency" value="0" />
   <parameter name="resetSynchronousEdges" value="DEASSERT" />
  </module>
- <module name="hw_crc32_0" kind="hw_crc32" version="1.0" enabled="1" />
  <module
    name="i2c_opencores_0"
    kind="i2c_opencores"
@@ -604,15 +582,6 @@
    kind="avalon"
    version="24.1"
    start="ibex_0.avalon_master_bus_data"
-   end="hw_crc32_0.avalon_slave">
-  <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00021000" />
-  <parameter name="defaultConnection" value="false" />
- </connection>
- <connection
-   kind="avalon"
-   version="24.1"
-   start="ibex_0.avalon_master_bus_data"
    end="i2c_opencores_0.avalon_slave_0">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x00021040" />
@@ -744,11 +713,6 @@
    version="24.1"
    start="clk_27.clk"
    end="onchip_memory2_0.clk1" />
- <connection
-   kind="clock"
-   version="24.1"
-   start="clk_27.clk"
-   end="hw_crc32_0.clk_sink" />
  <connection kind="clock" version="24.1" start="clk_27.clk" end="ibex_0.clk_sink" />
  <connection
    kind="clock"
@@ -841,11 +805,6 @@
    version="24.1"
    start="clk_27.clk_reset"
    end="onchip_memory2_0.reset1" />
- <connection
-   kind="reset"
-   version="24.1"
-   start="clk_27.clk_reset"
-   end="hw_crc32_0.reset_sink" />
  <connection
    kind="reset"
    version="24.1"

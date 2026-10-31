@@ -24,7 +24,7 @@ qsys-generate sys.qsys \
 # block, which the downscaler line buffers need: build it from registers.
 for f in sys/synthesis/submodules/avst_fifo.v; do
     grep -n "USE_MEMORY_BLOCKS" "$f" || true
-    sed -i -E 's/\.USE_MEMORY_BLOCKS( *)\( *1 *\)/.USE_MEMORY_BLOCKS\1(0)/' "$f"
+    sed -i -E 's/(parameter +USE_MEMORY_BLOCKS *= *)1/\10/' "$f"
     grep -n "USE_MEMORY_BLOCKS" "$f" || true
 done
 
