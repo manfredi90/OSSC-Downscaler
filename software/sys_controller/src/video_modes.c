@@ -165,7 +165,7 @@ typedef struct {
     uint16_t in_crop;           // source pixels cropped on each side
     uint8_t ar43;               // 720p "Center 4:3" variant
     uint8_t hfilt;              // ADC samples (hfilt+1) per stored sample, averaged
-    uint8_t ilace;              // 480i output: one field per input frame (2 = alternative clock)
+    uint8_t ilace;              // 480i output: one field per input frame
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
 } ds_mode_t;
@@ -195,10 +195,6 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
     { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
-    // 720p, alternative clock: 560x750 -> 1600/3200, i.e. the same output timing
-    // as VGA>480i (25.2/50.4MHz). Lower horizontal resolution (434 samples).
-    { HDMI_720p60,      750,  560, 1600, 525, 2, 2, 2, 19, 0,   0, 0, 0, 2, 2, 2, "720p>480iB" },
-    { HDMI_720p60,      750,  560, 3200, 525, 2, 5, 2, 19, 0,   0, 0, 1, 2, 2, 2, "720p>480iB" },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -209,20 +205,22 @@ static const ds_mode_t ds_modes[] = {
 
 #define DS_OUT_V_SYNCLEN    3
 #define DS_OUT_V_ACTIVE     240
+#define DS_OUT_V_FPORCH     3   // blank lines before vsync (pre-equalizing pulses)
+
+static uint8_t ds_out_delay;
+static uint16_t ds_framesync_line;
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
     const ds_mode_t *match = NULL;
     uint8_t want_hfilt = !cc->ds_hfilt_off;
-    // wanted output: 0 = 240p, 1 = 480i, 2 = 480i with the alternative clock
-    uint8_t want[3];
+    // wanted output: 0 = 240p, 1 = 480i
+    uint8_t want[2];
     unsigned pass, npass = 0;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
 
-    if (cc->ds_480i && cc->ds_480i_alt)
-        want[npass++] = 2;
     if (cc->ds_480i)
         want[npass++] = 1;
     want[npass++] = 0;
@@ -286,7 +284,24 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_out->timings.v_total = m->out_v_total;       // 525 for 480i (per frame)
     vm_out->timings.v_active = DS_OUT_V_ACTIVE;     // per field
     vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
-    vm_out->timings.v_backporch = m->out_v_backporch;
+    // Active video must end before the next vsync's pre-equalizing pulses
+    // (3 lines): HDMI cannot carry sync changes during active video, and
+    // monitors expect a vertical front porch. A longer back porch (needed by
+    // the line buffer timing) is obtained by starting the output field later
+    // relative to the input frame instead (framesync_line, see below).
+    {
+        uint16_t field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
+        uint8_t vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - DS_OUT_V_ACTIVE;
+
+        if (m->out_v_backporch > vbp_max) {
+            ds_out_delay = m->out_v_backporch - vbp_max;
+            vm_out->timings.v_backporch = vbp_max;
+        } else {
+            ds_out_delay = 0;
+            vm_out->timings.v_backporch = m->out_v_backporch;
+        }
+        ds_framesync_line = ds_out_delay ? (field_lines - ds_out_delay) : 0;
+    }
     vm_out->timings.interlaced = !!m->ilace;
     vm_out->type = VIDEO_SDTV;
     vm_out->ar.h = 4;
@@ -308,7 +323,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // aligned with integer-scaled content (blending a group of identical
     // lines then gives exactly the unblended picture).
     vm_conf->ds_ilace = !!m->ilace;
-    vm_conf->ds_fswap = m->ilace ? !!cc->ds_fswap : 0;
+    vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
     if (m->ilace) {
@@ -325,7 +340,8 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->ds_lb_layout = m->lb_layout;
     vm_conf->ds_csync = cc->ds_csync;
 
-    vm_conf->framesync_line = 0;
+    // output field starts ds_out_delay lines after the input frame
+    vm_conf->framesync_line = ds_framesync_line;
     vm_conf->framelock = 1;
     vm_conf->si_pclk_mult = 1;
     vm_conf->tx_pixelrep = 0;

@@ -168,8 +168,8 @@ typedef struct {
     alt_u8 ds_vblend_off;   // 0 = line blending on
     alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
-    alt_u8 ds_fswap;        // 480i: 0 = upper rows in the odd field, 1 = swapped
-    alt_u8 ds_480i_alt;     // 720p->480i: 0 = 658 samples/line (29.6MHz), 1 = 560 (25.2MHz, VGA-like)
+    alt_u8 ds_unused0;      // was: 480i field order (v0.10 test)
+    alt_u8 ds_unused1;      // was: 720p>480i clock (v0.10 test)
     alt_u8 ds_reserved[7];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
