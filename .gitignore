@@ -31,3 +31,4 @@ software/sys_controller/mem_init/sys_onchip_memory2_0.hex
 software/sys_controller/mem_init/chunks/
 software/sys_controller/mem_init/flash.bin
 software/sys_controller/mem_init/flash.hex
+ci_logs/

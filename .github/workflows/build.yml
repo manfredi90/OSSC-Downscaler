@@ -11,6 +11,9 @@ env:
   FW_VERSION: "1.22"
   FW_SUFFIX: "2nd"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -44,9 +47,11 @@ jobs:
 
       - name: Build FPGA bitstream
         run: |
+          set -o pipefail
+          mkdir -p output_files ci_logs
           docker run --rm -v "$PWD:/build" -w /build --entrypoint /bin/bash \
             --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            "$QUARTUS_IMAGE" -c "./scripts/ci_build_fpga.sh"
+            "$QUARTUS_IMAGE" -c "id; ls -l scripts/ci_build_fpga.sh; bash ./scripts/ci_build_fpga.sh" 2>&1 | tee ci_logs/fpga.log
 
       - name: Create SD card image
         run: |
@@ -60,6 +65,21 @@ jobs:
         run: |
           grep -A40 "Slow 1200mV 85C Model Setup Summary" output_files/ossc.sta.rpt | head -40 || true
           grep -i "critical warning" output_files/*.rpt | head -40 || true
+
+      # Build outputs and logs are also pushed to the "ci-out" branch, so they
+      # can be fetched with plain git.
+      - name: Publish to ci-out branch
+        if: always()
+        run: |
+          mkdir -p /tmp/out && cd /tmp/out
+          cp "$GITHUB_WORKSPACE"/output_files/ossc_*-*.bin . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE"/output_files/*.summary "$GITHUB_WORKSPACE"/output_files/*.rpt . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE"/ci_logs/* . 2>/dev/null || true
+          echo "${GITHUB_SHA} run ${GITHUB_RUN_ID} ${{ job.status }}" > BUILD_INFO.txt
+          git init -q -b ci-out
+          git -c user.name=ci -c user.email=ci@localhost add -A
+          git -c user.name=ci -c user.email=ci@localhost commit -q -m "CI output for ${GITHUB_SHA::8}"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" ci-out
 
       - uses: actions/upload-artifact@v4
         if: always()
