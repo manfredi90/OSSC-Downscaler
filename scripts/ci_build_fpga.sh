@@ -23,7 +23,25 @@ qsys-generate sys.qsys \
 # line-number differences between Quartus versions.
 sed -i 's/\.FIFO_DEPTH          (64),/.FIFO_DEPTH          (1024),/' sys/synthesis/submodules/sys_master_0.v || true
 
-quartus_sh --flow compile ossc
+# Fitter seed sweep: stop at the first seed that meets timing.
+SEEDS="${SEEDS:-1 2 3 4 5 6}"
+met=0
+for seed in ${SEEDS}; do
+    echo "=== Compiling with SEED=${seed} ==="
+    sed -i "s/^set_global_assignment -name SEED .*/set_global_assignment -name SEED ${seed}/" ossc.qsf
+    quartus_sh --flow compile ossc
+    if ! grep -q "Slack : -" output_files/ossc.sta.summary; then
+        echo "=== Timing met with SEED=${seed} ==="
+        met=1
+        break
+    fi
+    echo "=== Timing NOT met with SEED=${seed} ==="
+    grep -B1 "Slack : -" output_files/ossc.sta.summary || true
+done
+echo "seed=${seed} timing_met=${met}" > output_files/timing.txt
+if [ "${met}" != 1 ]; then
+    echo "WARNING: no seed met timing, keeping last result"
+fi
 
 # Compressed RBF: needed to fit below the SW image at slot offset 0x50000
 quartus_cpf -c -o bitstream_compression=on output_files/ossc.sof output_files/ossc_2nd.rbf

@@ -77,7 +77,7 @@ jobs:
           mkdir -p /tmp/out && cd /tmp/out
           cp "$GITHUB_WORKSPACE"/output_files/ossc_*-*.bin . 2>/dev/null || true
           cp "$GITHUB_WORKSPACE"/output_files/*.summary "$GITHUB_WORKSPACE"/output_files/*.rpt . 2>/dev/null || true
-          cp "$GITHUB_WORKSPACE"/ci_logs/* . 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE"/ci_logs/* "$GITHUB_WORKSPACE"/output_files/timing.txt . 2>/dev/null || true
           echo "${GITHUB_SHA} run ${GITHUB_RUN_ID} ${{ job.status }}" > BUILD_INFO.txt
           git init -q -b ci-out
           git -c user.name=ci -c user.email=ci@localhost add -A
