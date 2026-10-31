@@ -42,9 +42,9 @@ module linebuf_top (
     // Line buffer layout: 0 = 2 x 2048 px (stock), 1 = 8 x 1024 px,
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
-    // Horizontal 2:1 box filter: average each sample with the previous one
-    // (used with h_skip=1, i.e. 2x oversampling)
-    input ds_hfilt,
+    // Horizontal box filter for oversampled input: 0 = off, 1 = average of 2
+    // ADC samples (h_skip=1), 2 = average of 3 ADC samples (h_skip=2)
+    input [1:0] ds_hfilt,
     // Line blending: store the average of each group of (ds_vdec+1) lines
     // (ds_vstart is then the LAST line of the first group)
     input ds_vblend,
@@ -292,28 +292,35 @@ linebuf linebuf_rgb (
 
 // ---------------------------------------------------------------------------
 // Downscaler write path
-//   stage 0: input sample, optional horizontal 2:1 average, blend RAM read
-//   stage 1: blend (accumulate / average), blend RAM write
-//   stage 2: line buffer write
+//   stage A: ADC sample history
+//   stage B: horizontal sums
+//   stage 1: horizontal average, blend RAM read data
+//   stage 2: blend (accumulate), blend RAM write
+//   stage 3: group average, line buffer write
 // ---------------------------------------------------------------------------
 wire ds_mode = (ds_vdec != 2'h0);
 wire blend_en = ds_vblend & ds_mode;
 
 reg [1:0] ds_gpos;          // line position inside the current group
 reg ds_store, ds_first;     // per line: write to line buffer / first line of group
-reg [7:0] R_prev, G_prev, B_prev;
 
 // group start line: ds_vstart for picking, ds_vstart-ds_vdec for blending
 wire [10:0] grp_start = {5'h0, ds_vstart} - (blend_en ? {9'h0, ds_vdec} : 11'h0);
 wire [1:0] store_gpos = blend_en ? ds_vdec : 2'h0;
 
-// stage 0: horizontal filter
-wire [8:0] hR = {1'b0, R_i} + {1'b0, R_prev};
-wire [8:0] hG = {1'b0, G_i} + {1'b0, G_prev};
-wire [8:0] hB = {1'b0, B_i} + {1'b0, B_prev};
-wire [7:0] R_h = ds_hfilt ? hR[8:1] : R_i;
-wire [7:0] G_h = ds_hfilt ? hG[8:1] : G_i;
-wire [7:0] B_h = ds_hfilt ? hB[8:1] : B_i;
+// stages A/B: horizontal filter
+reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b, R_c, G_c, B_c;
+reg [10:0] x_a, x_b;
+reg v_a, v_b;
+reg [7:0] Rr_b, Gr_b, Br_b;
+reg [8:0] s2R_b, s2G_b, s2B_b;
+reg [9:0] s3R_b, s3G_b, s3B_b;
+wire [17:0] h3R = s3R_b * 8'd171;   // /3 ~ *171/512
+wire [17:0] h3G = s3G_b * 8'd171;
+wire [17:0] h3B = s3B_b * 8'd171;
+wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? h3R[16:9] : Rr_b);
+wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? h3G[16:9] : Gr_b);
+wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? h3B[16:9] : Br_b);
 
 // blend accumulator: one line, 9 bits per channel
 reg [26:0] acc_mem [0:1023] /* synthesis ramstyle = "M9K" */;
@@ -325,9 +332,23 @@ reg [10:0] x_1;
 reg v_1, store_1, first_1;
 
 always @(posedge PCLK_CAP_i) begin
-    R_prev <= R_i;
-    G_prev <= G_i;
-    B_prev <= B_i;
+    // stage A
+    {R_a, G_a, B_a} <= {R_i, G_i, B_i};
+    {R_b, G_b, B_b} <= {R_a, G_a, B_a};
+    {R_c, G_c, B_c} <= {R_b, G_b, B_b};
+    x_a <= xpos_i;
+    v_a <= DE_i & datavalid_i & wr_x_ok;
+
+    // stage B (R_a = selected sample, R_b/R_c = the previous ADC samples)
+    s2R_b <= {1'b0, R_a} + {1'b0, R_b};
+    s2G_b <= {1'b0, G_a} + {1'b0, G_b};
+    s2B_b <= {1'b0, B_a} + {1'b0, B_b};
+    s3R_b <= {2'b0, R_a} + {2'b0, R_b} + {2'b0, R_c};
+    s3G_b <= {2'b0, G_a} + {2'b0, G_b} + {2'b0, G_c};
+    s3B_b <= {2'b0, B_a} + {2'b0, B_b} + {2'b0, B_c};
+    {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
+    x_b <= x_a;
+    v_b <= v_a;
 
     // per-line control
     if (ds_vdec == 2'h0) begin
@@ -372,13 +393,13 @@ always @(posedge PCLK_CAP_i) begin
     end
     ypos_prev <= ypos_i;
 
-    // stage 0 -> 1
-    acc_q <= acc_mem[xpos_i[9:0]];
+    // stage B -> 1
+    acc_q <= acc_mem[x_b[9:0]];
     R_1 <= R_h;
     G_1 <= G_h;
     B_1 <= B_h;
-    x_1 <= xpos_i;
-    v_1 <= DE_i & datavalid_i & wr_x_ok;
+    x_1 <= x_b;
+    v_1 <= v_b;
     store_1 <= ds_store;
     first_1 <= ds_first;
 end

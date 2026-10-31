@@ -88,9 +88,10 @@ wire [31:0] misc_config_sc = {misc_config[31:25], 1'b0, 8'h0, 1'b0, misc_config[
 wire [1:0] ds_vdec = misc_config[26:25];    // store 1 of every (ds_vdec+1) input lines
 wire [1:0] ds_csync = misc_config[28:27];   // 0=off, 1=XOR, 2=AND (CSync on HSYNC)
 wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf_top)
-// sl_config (scanlines removed) now carries downscaler filter controls
-wire ds_hfilt = sl_config[0];               // horizontal 2:1 average (2x oversampling)
-wire ds_vblend = sl_config[1];              // line blending
+// sl_config (scanlines removed) now carries downscaler filter controls,
+// sl_config2 the extension bits of the wide horizontal output timings
+wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
+wire ds_vblend = sl_config[2];              // line blending
 
 wire pll_clkout, pll_clkswitch, pll_locked;
 wire clkmux_clkout;
@@ -516,6 +517,7 @@ scanconverter #(
     .hv_out_config3(hv_out_config3),
     .xy_out_config(xy_out_config),
     .xy_out_config2(xy_out_config2),
+    .hv_ext_config(sl_config2),
     .misc_config(misc_config_sc),
     .sl_config(32'h0),
     .sl_config2(32'h0),

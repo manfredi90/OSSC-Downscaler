@@ -41,6 +41,9 @@ module scanconverter (
     input [31:0] hv_out_config3,
     input [31:0] xy_out_config,
     input [31:0] xy_out_config2,
+    // Downscaler firmware: extension bits for wide horizontal timings
+    // [0] h_total[12] [1] h_active[12] [2] h_synclen[8] [3] x_size[12] [4] x_rpt[4]
+    input [31:0] hv_ext_config,
     input [31:0] misc_config,
     input [31:0] sl_config,
     input [31:0] sl_config2,
@@ -49,7 +52,7 @@ module scanconverter (
     input lb_enable,
     input [1:0] ds_vdec,
     input [1:0] lb_layout,
-    input ds_hfilt,
+    input [1:0] ds_hfilt,
     input ds_vblend,
     input ext_sync_mode,
     input ext_frame_change_i,
@@ -117,9 +120,9 @@ localparam PP_TP_LENGTH         = 1;
 localparam PP_TP_END            = PP_TP_START + PP_TP_LENGTH;
 localparam PP_PL_END            = PP_TP_END;
 
-wire [11:0] H_TOTAL = hv_out_config[11:0];
-wire [11:0] H_ACTIVE = hv_out_config[23:12];
-wire [7:0] H_SYNCLEN = hv_out_config[31:24];
+wire [12:0] H_TOTAL = {hv_ext_config[0], hv_out_config[11:0]};
+wire [12:0] H_ACTIVE = {hv_ext_config[1], hv_out_config[23:12]};
+wire [8:0] H_SYNCLEN = {hv_ext_config[2], hv_out_config[31:24]};
 wire [8:0] H_BACKPORCH = hv_out_config2[8:0];
 
 wire V_INTERLACED = hv_out_config2[31];
@@ -132,7 +135,7 @@ wire [10:0] V_STARTLINE = hv_out_config3[23:13];
 
 wire [10:0] V_STARTLINE_PREV = (V_STARTLINE == 0) ? (V_TOTAL-1) : (V_STARTLINE-1);
 
-wire [11:0] X_SIZE = xy_out_config[11:0];
+wire [12:0] X_SIZE = {hv_ext_config[3], xy_out_config[11:0]};
 wire [10:0] Y_SIZE = xy_out_config[22:12];
 wire signed [9:0] X_OFFSET = xy_out_config2[9:0];
 wire signed [8:0] Y_OFFSET = xy_out_config[31:23];
@@ -143,7 +146,7 @@ wire [7:0] X_START_LB = xy_out_config2[17:10];
 wire [5:0] DS_VSTART = xy_out_config2[23:18];
 wire signed [5:0] Y_START_LB = (ds_vdec != 2'h0) ? 6'sd0 : xy_out_config2[23:18];
 
-wire signed [3:0] X_RPT = xy_out_config2[27:24];
+wire signed [4:0] X_RPT = {hv_ext_config[4], xy_out_config2[27:24]};
 wire signed [3:0] Y_RPT = xy_out_config2[31:28];
 
 wire Y_SKIP = (Y_RPT == 4'(-1));
@@ -184,7 +187,7 @@ wire [11:0] LT_BOX_Y_STOP  = (lt_mode == `LT_POS_TOPLEFT) ? (V_ACTIVE/`LT_HEIGHT
 reg frame_change_sync1_reg, frame_change_sync2_reg, frame_change_prev, frame_change_resync;
 wire frame_change = frame_change_sync2_reg;
 
-reg [11:0] h_cnt;
+reg [12:0] h_cnt;
 reg [10:0] v_cnt;
 reg h_avidstart, v_avidstart;
 reg src_fid, dst_fid;
@@ -193,7 +196,7 @@ wire [6:0] panasonic_adjust = (MISC_PANASONIC_HACK & (Y_RPT == 4'h1) & (v_cnt ==
 reg [10:0] xpos_lb;
 wire [10:0] xpos_lb_start = (X_OFFSET < 10'sd0) ? 11'd0 : {1'b0, X_OFFSET};
 reg [10:0] ypos_lb, ypos_lb_next;
-reg [3:0] x_ctr;
+reg [4:0] x_ctr;
 reg [3:0] y_ctr;
 reg line_id;
 reg ypos_pp_init;
@@ -222,7 +225,7 @@ reg [7:0] B_pp[PP_SRCSEL_END:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg HSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg VSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg DE_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
-reg [11:0] xpos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
+reg [12:0] xpos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg [10:0] ypos_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg mask_enable_pp[PP_MASK_END:PP_TP_START] /* synthesis ramstyle = "logic" */;
 reg lt_box_enable_pp[PP_MASK_END:PP_TP_START] /* synthesis ramstyle = "logic" */;
@@ -653,7 +656,7 @@ assign B_o = B_pp[PP_PL_END];
 assign HSYNC_o = HSYNC_pp[PP_PL_END];
 assign VSYNC_o = VSYNC_pp[PP_PL_END];
 assign DE_o = DE_pp[PP_PL_END];
-assign xpos_o = xpos_pp[PP_PL_END];
+assign xpos_o = xpos_pp[PP_PL_END][12] ? 12'hfff : xpos_pp[PP_PL_END][11:0];   // saturate for OSD
 assign ypos_o = ypos_pp[PP_PL_END];
 
 endmodule

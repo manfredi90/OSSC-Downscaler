@@ -629,10 +629,20 @@ void update_sc_config()
         sl_config3.sl_c_overlay = 0;
     }
 
-    // scanlines are not supported: sl_config carries the downscaler filters
-    sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_vblend << 1)) : 0;
-    sl_config2.data = 0;
-    sl_config3.data = 0;
+    // scanlines are not supported: sl_config carries the downscaler filters,
+    // sl_config2 the extension bits of the 13-bit horizontal output timings
+    {
+        uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
+
+        hv_out_config.h_synclen = h_synclen & 0xff;
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_vblend << 2)) : 0;
+        sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
+                          (((vm_out->timings.h_active >> 12) & 1) << 1) |
+                          (((h_synclen >> 8) & 1) << 2) |
+                          (((vm_conf.x_size >> 12) & 1) << 3) |
+                          (((vm_conf.x_rpt >> 4) & 1) << 4);
+        sl_config3.data = 0;
+    }
 
     sc->hv_in_config = hv_in_config;
     sc->hv_in_config2 = hv_in_config2;
