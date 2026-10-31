@@ -494,26 +494,42 @@ end
 // from the vsync start of the current field (cs_pcur) or of the next one
 // (cs_pnext). In 480i the even field's vsync starts half a line before its
 // v_cnt 0, and the odd field (V_TOTAL+1 lines) ends half a line early.
-wire cs_half = (h_cnt >= (H_TOTAL/2));
-wire [12:0] cs_hpos = cs_half ? (h_cnt - (H_TOTAL/2)) : h_cnt;
-wire cs_even = V_INTERLACED & (dst_fid == FID_EVEN);
-wire signed [13:0] cs_pcur = $signed({2'b00, v_cnt, cs_half}) + $signed({13'h0, cs_even});
-wire signed [13:0] cs_flen = $signed({2'b00, V_TOTAL, 1'b0}) + $signed({13'h0, V_INTERLACED});
-wire signed [13:0] cs_pnext = cs_pcur - cs_flen;
-wire signed [13:0] cs_p = (cs_pnext >= -14'sd6) ? cs_pnext : cs_pcur;
+// Computed in 4 register stages (timing), output enters the pipeline at
+// stage 4 so that it stays aligned with HSYNC/VSYNC.
+reg cs_half_a, cs_even_a, cs_half_b;
+reg [12:0] cs_hpos_a;
+reg [10:0] cs_v_a;
+reg signed [13:0] cs_pcur_b, cs_pnext_b;
+reg cs_lt_vs_b, cs_lt_eq_b, cs_lt_hs_b, cs_lt_vs_c, cs_lt_eq_c, cs_lt_hs_c;
+reg cs_vs_c, cs_eq_c;
+reg cs_d;   // = pipeline stage 4
 wire signed [13:0] cs_vs_end = $signed({9'h0, V_SYNCLEN, 1'b0});
-wire cs_vs = (cs_p >= 0) & (cs_p < cs_vs_end);
-wire cs_eq = ((cs_p >= -14'sd6) & (cs_p < 0)) | ((cs_p >= cs_vs_end) & (cs_p < cs_vs_end + 14'sd6));
+wire signed [13:0] cs_flen = $signed({2'b00, V_TOTAL, 1'b0}) + $signed({13'h0, V_INTERLACED});
+wire signed [13:0] cs_p = (cs_pnext_b >= -14'sd6) ? cs_pnext_b : cs_pcur_b;
+always @(posedge PCLK_OUT_i) begin
+    // stage A (same time as pipeline stage 1)
+    cs_half_a <= (h_cnt >= (H_TOTAL/2));
+    cs_hpos_a <= (h_cnt >= (H_TOTAL/2)) ? (h_cnt - (H_TOTAL/2)) : h_cnt;
+    cs_v_a <= v_cnt;
+    cs_even_a <= V_INTERLACED & (dst_fid == FID_EVEN);
+    // stage B
+    cs_pcur_b <= $signed({2'b00, cs_v_a, cs_half_a}) + $signed({13'h0, cs_even_a});
+    cs_pnext_b <= $signed({2'b00, cs_v_a, cs_half_a}) + $signed({13'h0, cs_even_a}) - cs_flen;
+    cs_half_b <= cs_half_a;
+    cs_lt_vs_b <= (cs_hpos_a < ((H_TOTAL/2) - H_SYNCLEN));
+    cs_lt_eq_b <= (cs_hpos_a < (H_SYNCLEN/2));
+    cs_lt_hs_b <= ~cs_half_a & (cs_hpos_a < H_SYNCLEN);
+    // stage C
+    cs_vs_c <= (cs_p >= 0) & (cs_p < cs_vs_end);
+    cs_eq_c <= ((cs_p >= -14'sd6) & (cs_p < 0)) | ((cs_p >= cs_vs_end) & (cs_p < cs_vs_end + 14'sd6));
+    {cs_lt_vs_c, cs_lt_eq_c, cs_lt_hs_c} <= {cs_lt_vs_b, cs_lt_eq_b, cs_lt_hs_b};
+    // stage D (= pipeline stage 4), active low
+    cs_d <= ~(cs_vs_c ? cs_lt_vs_c : (cs_eq_c ? cs_lt_eq_c : cs_lt_hs_c));
+end
 
 // Pipeline stage 1
 always @(posedge PCLK_OUT_i) begin
     HSYNC_pp[1] <= (h_cnt < H_SYNCLEN) ? 1'b0 : 1'b1;
-    if (cs_vs)
-        CSYNC_pp[1] <= ~(cs_hpos < ((H_TOTAL/2) - H_SYNCLEN));
-    else if (cs_eq)
-        CSYNC_pp[1] <= ~(cs_hpos < (H_SYNCLEN/2));
-    else
-        CSYNC_pp[1] <= ~(~cs_half & (h_cnt < H_SYNCLEN));
     if (dst_fid == FID_ODD)
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN) | ((v_cnt == V_TOTAL) & (h_cnt >= (H_TOTAL/2)))) ? 1'b0 : 1'b1;
     else
@@ -598,12 +614,14 @@ integer pp_idx;
 always @(posedge PCLK_OUT_i) begin
     for(pp_idx = PP_PL_START+1; pp_idx <= PP_PL_END; pp_idx = pp_idx+1) begin
         HSYNC_pp[pp_idx] <= HSYNC_pp[pp_idx-1];
-        CSYNC_pp[pp_idx] <= CSYNC_pp[pp_idx-1];
         VSYNC_pp[pp_idx] <= VSYNC_pp[pp_idx-1];
         DE_pp[pp_idx] <= DE_pp[pp_idx-1];
         xpos_pp[pp_idx] <= xpos_pp[pp_idx-1];
         ypos_pp[pp_idx] <= ypos_pp[pp_idx-1];
     end
+    CSYNC_pp[5] <= cs_d;
+    for(pp_idx = 6; pp_idx <= PP_PL_END; pp_idx = pp_idx+1)
+        CSYNC_pp[pp_idx] <= CSYNC_pp[pp_idx-1];
     for(pp_idx = PP_PL_START+1; pp_idx <= PP_SLGEN_START; pp_idx = pp_idx+1) begin
         x_ctr_sl_pp[pp_idx] <= x_ctr_sl_pp[pp_idx-1];
         y_ctr_sl_pp[pp_idx] <= y_ctr_sl_pp[pp_idx-1];
