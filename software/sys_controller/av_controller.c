@@ -399,7 +399,8 @@ status_t get_status(tvp_sync_input_t syncinput)
         }
 
         if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
-            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase))
+            (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase) ||
+            (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;

@@ -43,6 +43,10 @@
 #define ALC_V_FILTER_MAX    10
 #define CLAMP_OFFSET_MIN    (SIGNED_NUMVAL_ZERO-100)
 #define CLAMP_OFFSET_MAX    (SIGNED_NUMVAL_ZERO+100)
+#define DS_HPOS_MIN         (SIGNED_NUMVAL_ZERO-40)
+#define DS_HPOS_MAX         (SIGNED_NUMVAL_ZERO+40)
+#define DS_VPOS_MIN         (SIGNED_NUMVAL_ZERO-12)
+#define DS_VPOS_MAX         (SIGNED_NUMVAL_ZERO+12)
 
 #define SL_MODE_MAX         2
 #define SL_TYPE_MAX         2
@@ -170,7 +174,9 @@ typedef struct {
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
     alt_u8 ds_unused0;      // was: 480i field order (v0.10 test)
     alt_u8 ds_unused1;      // was: 720p>480i clock (v0.10 test)
-    alt_u8 ds_reserved[7];  // room for future options without changing the layout
+    alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
+    alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
+    alt_u8 ds_reserved[5];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

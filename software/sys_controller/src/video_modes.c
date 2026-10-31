@@ -206,9 +206,9 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_SYNCLEN    3
 #define DS_OUT_V_ACTIVE     240
 #define DS_OUT_V_FPORCH     3   // blank lines before vsync (pre-equalizing pulses)
+#define DS_OUT_V_BPORCH_MIN 4   // blank lines after vsync (post-equalizing pulses + 1)
 
-static uint8_t ds_out_delay;
-static uint16_t ds_framesync_line;
+static uint16_t ds_framesync_line, ds_v_active;
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
@@ -280,27 +280,51 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_out->timings.h_synclen = (out_h_synclen > 255) ? 255 : out_h_synclen;  // info only
     vm_conf->ds_h_synclen = out_h_synclen;
     vm_out->timings.h_backporch = out_h_bp_min + (out_active_max-out_active)/2;
+    // User horizontal position, in steps of one stored pixel. Keeps a back
+    // porch >= 2.5us and a front porch >= 0.6us.
+    {
+        int hoff = ((int)cc->ds_hpos - SIGNED_NUMVAL_ZERO) * rpt;
+        int bp = (int)vm_out->timings.h_backporch + hoff;
+        int bp_lim = (m->out_h_total*40 + 500)/1000;
+        int bp_max = (int)m->out_h_total - out_h_synclen - out_active - (m->out_h_total*10 + 500)/1000;
+
+        if (bp < bp_lim)
+            bp = bp_lim;
+        if (bp > bp_max)
+            bp = bp_max;
+        if (bp > 511)
+            bp = 511;           // 9-bit register field
+        vm_out->timings.h_backporch = bp;
+    }
     vm_out->timings.h_total_adj = 0;
     vm_out->timings.v_total = m->out_v_total;       // 525 for 480i (per frame)
     vm_out->timings.v_active = DS_OUT_V_ACTIVE;     // per field
     vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
-    // Active video must end before the next vsync's pre-equalizing pulses
-    // (3 lines): HDMI cannot carry sync changes during active video, and
-    // monitors expect a vertical front porch. A longer back porch (needed by
-    // the line buffer timing) is obtained by starting the output field later
-    // relative to the input frame instead (framesync_line, see below).
+    // Vertical timing. Active video must end before the next vsync's
+    // pre-equalizing pulses (3 lines): HDMI cannot carry sync changes during
+    // active video, and monitors expect a vertical front porch. The line
+    // buffer timing (when each output line is read relative to the input
+    // frame) is set by out_v_backporch and is kept constant: a shorter back
+    // porch (or "V. position" upwards) starts the output field later relative
+    // to the input frame (framesync_line), a longer one earlier. Moving the
+    // picture down beyond the front porch limit hides the bottom lines.
     {
-        uint16_t field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
-        uint8_t vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - DS_OUT_V_ACTIVE;
+        int field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
+        int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - DS_OUT_V_ACTIVE;
+        int vbp = ((m->out_v_backporch > vbp_max) ? vbp_max : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
+        int v_active = DS_OUT_V_ACTIVE;
+        int delay;
 
-        if (m->out_v_backporch > vbp_max) {
-            ds_out_delay = m->out_v_backporch - vbp_max;
-            vm_out->timings.v_backporch = vbp_max;
-        } else {
-            ds_out_delay = 0;
-            vm_out->timings.v_backporch = m->out_v_backporch;
-        }
-        ds_framesync_line = ds_out_delay ? (field_lines - ds_out_delay) : 0;
+        if (vbp < DS_OUT_V_BPORCH_MIN)
+            vbp = DS_OUT_V_BPORCH_MIN;
+        if (vbp > vbp_max)
+            v_active -= vbp - vbp_max;
+        delay = (int)m->out_v_backporch - vbp;   // output field start after the input frame start, in lines
+
+        vm_out->timings.v_backporch = vbp;
+        vm_out->timings.v_active = v_active;
+        ds_v_active = v_active;
+        ds_framesync_line = (delay > 0) ? (field_lines - delay) : -delay;
     }
     vm_out->timings.interlaced = !!m->ilace;
     vm_out->type = VIDEO_SDTV;
@@ -312,7 +336,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->y_rpt = 0;
     vm_conf->h_skip = m->hfilt;         // ADC samples (hfilt+1) per stored sample
     vm_conf->x_size = out_active;
-    vm_conf->y_size = DS_OUT_V_ACTIVE;
+    vm_conf->y_size = ds_v_active;
     vm_conf->x_offset = 0;
     vm_conf->y_offset = 0;
     vm_conf->x_start_lb = (smp_active - out_active/rpt)/2;
@@ -340,7 +364,6 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->ds_lb_layout = m->lb_layout;
     vm_conf->ds_csync = cc->ds_csync;
 
-    // output field starts ds_out_delay lines after the input frame
     vm_conf->framesync_line = ds_framesync_line;
     vm_conf->framelock = 1;
     vm_conf->si_pclk_mult = 1;

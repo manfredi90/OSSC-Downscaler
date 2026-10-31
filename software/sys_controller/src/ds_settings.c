@@ -66,6 +66,11 @@ int ds_settings_load() {
     }
 
     memcpy(&tc, &blob.tc, sizeof(avconfig_t));
+    // settings saved before v0.12 have 0 (= unset) in the position fields
+    if (tc.ds_hpos == 0)
+        tc.ds_hpos = SIGNED_NUMVAL_ZERO;
+    if (tc.ds_vpos == 0)
+        tc.ds_vpos = SIGNED_NUMVAL_ZERO;
     memcpy(&ts, &blob.ts, sizeof(settings_t));
     memcpy(rc_keymap, blob.rc_keymap, sizeof(blob.rc_keymap));
     printf("DS settings loaded\n");
