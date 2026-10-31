@@ -141,7 +141,9 @@ uint32_t calculate_pclk(uint32_t src_clk_hz, mode_data_t *vm_out, vm_proc_config
  * and the output line rate is ~15.7kHz. With hfilt the ADC samples
  * (hfilt+1)*smp_h_total per line and each group of (hfilt+1) samples is
  * averaged (box filter against aliasing); out_h_total scales accordingly.
- * Output horizontal fields are 13 bits wide (hsync 9 bits).
+ * Output lines are kept <= 4095 clocks: longer lines (possible in the FPGA,
+ * whose horizontal fields are 13 bits wide) gave a black screen in testing,
+ * most likely a 12-bit limit in the HDMI transmitter or the HDMI-VGA DAC.
  *
  * When an output line lasts a non-integer number of input lines, reading
  * drifts relative to writing over the frame; the line buffer layout is chosen
@@ -172,19 +174,17 @@ static const ds_mode_t ds_modes[] = {
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
     { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 1,   0, 0, 0, 0, 0, 0, "720p>240p" },
-    //   filtered: ADC 1965/line (88.4MHz, 3x), 508 samples averaged over 3, 5625x262
-    { HDMI_720p60,      750,  655, 5625, 262, 2, 8, 2, 19, 1,   0, 0, 2, 0, 0, 0, "720p>240p" },
+    //   filtered: ADC 1310/line (59MHz, 2x), 508 samples averaged over 2, 3750x262
+    { HDMI_720p60,      750,  655, 3750, 262, 2, 5, 2, 19, 1,   0, 0, 1, 0, 0, 0, "720p>240p" },
     // 720p60 center 4:3 (960 of 1280 px): 786x750 -> 2250x262
     { HDMI_720p60,      750,  786, 2250, 262, 2, 3, 2, 19, 1, 160, 1, 0, 0, 0, 0, "720p 4:3" },
-    //   filtered: ADC 1572/line (70.7MHz, 2x), 457 samples averaged over 2, 4500x262
-    { HDMI_720p60,      750,  786, 4500, 262, 2, 7, 2, 19, 1, 160, 1, 1, 0, 0, 0, "720p 4:3" },
+    //   filtered: ADC 1310/line (59MHz, 2x), 381 samples averaged over 2, 3750x262
+    { HDMI_720p60,      750,  655, 3750, 262, 2, 7, 2, 19, 1, 160, 1, 1, 0, 0, 0, "720p 4:3" },
     // 480p60 (DTV): 1048x525 -> 2100x262 (2.004 input lines per output line)
     { HDMI_480p60,      525, 1048, 2100, 262, 1, 1, 1, 16, 0,   0, 0, 0, 0, 0, 0, "480p>240p" },
-    //   filtered: ADC 2096/line (66MHz, 2x), 1048 samples averaged over 2, 4200x262
-    { HDMI_480p60,      525, 1048, 4200, 262, 1, 3, 1, 16, 0,   0, 0, 1, 0, 0, 0, "480p>240p" },
+    //   (no filtered 240p variant: 2x oversampling would need >4095 clocks/line)
     // 640x480 VGA: same timing, odd lines
     { HDMI_640x480p60,  525, 1048, 2100, 262, 1, 1, 1, 16, 1,   0, 0, 0, 0, 0, 0, "VGA>240p" },
-    { HDMI_640x480p60,  525, 1048, 4200, 262, 1, 3, 1, 16, 1,   0, 0, 1, 0, 0, 0, "VGA>240p" },
 
     /* ---- 480i output (525 lines, 2 fields of 262.5) ----
      * Each input frame becomes one field: field A (upper) takes line 0 of every
@@ -192,9 +192,9 @@ static const ds_mode_t ds_modes[] = {
      * 1.5-line spacing). Frame lock: ADC * in_v_total * 2 == out_h * 525. */
     // 720p: 658x750 -> 1880 (2.857 input lines per output line)
     { HDMI_720p60,      750,  658, 1880, 525, 2, 2, 2, 19, 0,   0, 0, 0, 1, 2, 2, "720p>480i" },
-    { HDMI_720p60,      750,  658, 5640, 525, 2, 8, 2, 19, 0,   0, 0, 2, 1, 2, 2, "720p>480i" },
+    { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
-    { HDMI_720p60,      750,  784, 4480, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
+    { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -234,6 +234,8 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     }
     return NULL;
 }
+
+#define DS_OUT_H_TOTAL_MAX  4095
 
 static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
     uint16_t in_h_total = vm_in->timings.h_total;
@@ -440,7 +442,7 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
 
     {
         const ds_mode_t *ds = find_ds_mode(cc, mode_preset, vm_in);
-        if (ds) {
+        if (ds && (ds->out_h_total <= DS_OUT_H_TOTAL_MAX)) {
             setup_ds_mode(ds, cc, vm_in, vm_out, vm_conf);
             return mindiff_id;
         }
