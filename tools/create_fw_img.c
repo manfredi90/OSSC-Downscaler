@@ -36,6 +36,12 @@
 
 #define FW_HDR_LEN 26
 
+// This fork only produces SECONDARY images ("OSS2" key). The stock firmware
+// writes such images to flash 0x00080000 and never touches the primary slot.
+#define FW_KEY "OSS2"
+// Secondary slot is 0x00080000-0x000FFFFF; userdata starts at 0x00100000.
+#define FW_MAX_DATA_LEN 0x00080000
+
 typedef struct {
     char fw_key[4];
     uint8_t version_major;
@@ -161,7 +167,7 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    snprintf(hdr.fw_key, FW_KEY_SIZE+1, "OSSC");
+    memcpy(hdr.fw_key, FW_KEY, FW_KEY_SIZE);
     hdr.version_major = (uint8_t)fw_version_major;
     hdr.version_minor = (uint8_t)fw_version_minor;
     snprintf(hdr.version_suffix, FW_SUFFIX_MAX_SIZE, legacy_mode ? ((argc == 4) ? argv[3] : "") : ((argc == 6) ? argv[5] : ""));
@@ -183,6 +189,10 @@ int main(int argc, char **argv)
             hdr.data_crc = crc32(hdr.data_crc, rdbuf, bytes_read);
             tot_bytes_read[0] += bytes_read;
         }
+        if (tot_bytes_read[0] > bin_offset) {
+            printf("RBF (%u bytes) does not fit below SW offset 0x%x\n", tot_bytes_read[0], bin_offset);
+            return -1;
+        }
         // data CRC (padding)
         memset(rdbuf, 0xff, sizeof(rdbuf));
         padding = bin_offset - tot_bytes_read[0];
@@ -198,6 +208,11 @@ int main(int argc, char **argv)
             tot_bytes_read[2] += bytes_read;
         }
         hdr.data_len = htobe32((uint32_t)fileinfo[0].st_size+padding+(uint32_t)fileinfo[1].st_size);
+    }
+
+    if (be32toh(hdr.data_len) > FW_MAX_DATA_LEN) {
+        printf("Image (%u bytes) exceeds secondary slot size (%u bytes)\n", be32toh(hdr.data_len), FW_MAX_DATA_LEN);
+        return -1;
     }
 
     // header CRC

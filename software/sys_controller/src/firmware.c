@@ -105,8 +105,16 @@ int fw_update(char *dirname, char *filename) {
             goto close_file;
         }
 
-        // Set target flash address
-        flash_addr = hdr.fw_key[3] == 'C' ? 0x00000000 : SECONDARY_FW_ADDR;
+        // This firmware runs from the secondary slot: never allow it to
+        // overwrite the primary (stock) firmware. Primary updates must be
+        // done from the stock firmware itself.
+        if (hdr.fw_key[3] == 'C') {
+            printf("Primary FW image rejected\n");
+            set_func_ret_msg("Use stock FW");
+            retval = -10;
+            goto close_file;
+        }
+        flash_addr = SECONDARY_FW_ADDR;
 
         crcval = crc32((unsigned char *)&hdr, hdr_len, 1);
         hdr.hdr_len = bswap32(hdr.hdr_len);

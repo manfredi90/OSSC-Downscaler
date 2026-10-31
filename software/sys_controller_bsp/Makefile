@@ -139,7 +139,7 @@ BSP_CFLAGS_OPTIMIZATION = -Os
 BSP_CFLAGS_WARNINGS = -Wall -Wno-unused-but-set-variable -Wno-unused-variable -Wno-unused-function
 
 # Match APP flags
-BSP_CFLAGS_USER_FLAGS := -fdata-sections -ffunction-sections -fshort-enums -fgnu89-inline -flto -msmall-data-limit=0
+BSP_CFLAGS_USER_FLAGS := -std=gnu2x -fdata-sections -ffunction-sections -fshort-enums -fgnu89-inline -flto -msmall-data-limit=0
 
 # C compiler command.
 CC = riscv64-unknown-elf-gcc -xc

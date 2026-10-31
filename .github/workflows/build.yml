@@ -1,0 +1,72 @@
+name: Build secondary firmware
+
+on:
+  push:
+    branches: [downscaler]
+  workflow_dispatch:
+
+env:
+  # Quartus Lite with Cyclone IV device support
+  QUARTUS_IMAGE: raetro/quartus:21.1
+  FW_VERSION: "1.22"
+  FW_SUFFIX: "2nd"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker image prune -af > /dev/null
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive --depth 1
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+      - name: Pull Quartus image
+        run: docker pull -q "$QUARTUS_IMAGE"
+
+      - name: Build software (RISC-V)
+        run: |
+          touch software/sys_controller_bsp/bsp_timestamp
+          make -C software/sys_controller -j"$(nproc)" mem_init_generate_new
+          ls -l software/sys_controller/mem_init/flash.bin
+
+      - name: Build FPGA bitstream
+        run: |
+          docker run --rm -v "$PWD:/build" -w /build --entrypoint /bin/bash \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            "$QUARTUS_IMAGE" -c "./scripts/ci_build_fpga.sh"
+
+      - name: Create SD card image
+        run: |
+          gcc tools/create_fw_img.c -o tools/create_fw_img
+          cd output_files
+          ../tools/create_fw_img ossc_2nd.rbf ../software/sys_controller/mem_init/flash.bin 0x50000 "$FW_VERSION" "$FW_SUFFIX"
+          python3 ../scripts/check_fw_img.py "ossc_${FW_VERSION}-${FW_SUFFIX}.bin"
+
+      - name: Timing summary
+        if: always()
+        run: |
+          grep -A40 "Slow 1200mV 85C Model Setup Summary" output_files/ossc.sta.rpt | head -40 || true
+          grep -i "critical warning" output_files/*.rpt | head -40 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ossc-2nd-fw
+          path: |
+            output_files/ossc_*-*.bin
+            output_files/*.rpt
+            output_files/*.summary
+          if-no-files-found: warn

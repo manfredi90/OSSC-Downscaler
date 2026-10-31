@@ -29,7 +29,7 @@
 #ifdef OSDLANG_JP
 #define FW_SUFFIX              "j"
 #else
-#define FW_SUFFIX              ""
+#define FW_SUFFIX              "-2"   // secondary-slot build
 #endif
 
 typedef struct {

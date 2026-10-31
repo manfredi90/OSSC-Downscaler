@@ -5,10 +5,12 @@ __DYNAMIC  =  0;
    In typical configuration a firmware image consists of
    * compressed bitstream (5 sectors / 0.3MB)
    * flash_imem (3 sectors / 0.2MB)
-   Last 16 flash sectors reserved for userdata (16x 64KB). */
+   Last 16 flash sectors reserved for userdata (16x 64KB).
+   This fork is built ONLY as the secondary image (flash 0x80000-0xFFFFF),
+   so flash_imem lives at secondary base + 0x50000. */
 MEMORY
 {
-    flash_imem : ORIGIN = 0x02050000, LENGTH = 196608
+    flash_imem : ORIGIN = 0x020D0000, LENGTH = 196608
     dataram    : ORIGIN = 0x00010000, LENGTH = 16384
 }
 
