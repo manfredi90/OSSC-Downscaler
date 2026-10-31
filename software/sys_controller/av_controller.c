@@ -236,25 +236,85 @@ inline void TX_enable(tx_mode_t mode)
     SetAVMute(FALSE);
 }
 
+// Downscaler: custom FPGA PLL configuration, pclk_out = pclk_in*M/(N*C0).
+// Scan chain layout (decoded from the configs above): 18 control bits (loop
+// filter / charge pump, taken from the low bandwidth configs which use a
+// similar M and PFD), then the N, M, C0..C4 counters, 18 bits each:
+// [bypass][high count 8][odd][low count 8]. The chain is stored so that the
+// last bit (C4 lsb) is shifted first (see pll_reconfig_top).
+#define DS_PLL_CUSTOM_ID 15
+static pll_config_t ds_pll_cfg;
+static uint8_t ds_pll_active;
+
+static void ds_pll_put(uint8_t *bits, int *pos, uint32_t val, int nbits) {
+    int i;
+    for (i=nbits-1; i>=0; i--)
+        bits[(*pos)++] = (val >> i) & 1;
+}
+
+static void ds_pll_put_counter(uint8_t *bits, int *pos, uint16_t cnt) {
+    if (cnt <= 1) {
+        ds_pll_put(bits, pos, 1, 1);        // bypass
+        ds_pll_put(bits, pos, 0, 17);
+    } else {
+        ds_pll_put(bits, pos, 0, 1);
+        ds_pll_put(bits, pos, (cnt+1)/2, 8);
+        ds_pll_put(bits, pos, cnt & 1, 1);
+        ds_pll_put(bits, pos, cnt/2, 8);
+    }
+}
+
+static void ds_pll_make(uint16_t n, uint16_t m, uint16_t c, pll_config_t *cfg) {
+    uint8_t bits[144];      // chain order, first = shifted last
+    int pos = 0, i, k;
+
+    ds_pll_put(bits, &pos, 0x01001, 18);     // control bits of the lo-bw configs
+    ds_pll_put_counter(bits, &pos, n);
+    ds_pll_put_counter(bits, &pos, m);
+    ds_pll_put_counter(bits, &pos, c);
+    for (i=0; i<4; i++)
+        ds_pll_put_counter(bits, &pos, 1);  // C1..C4 unused
+
+    memset(cfg, 0, sizeof(pll_config_t));
+    // shift order: bits[143] first = word4 bit 16 ... word0 bit 31 last
+    for (k=0; k<144; k++) {
+        int sh = 143-k;     // position in shift order
+        uint8_t b = bits[k];
+        if (sh < 16)
+            cfg->data[4] |= (uint32_t)b << (16+sh);
+        else
+            cfg->data[3-((sh-16)/32)] |= (uint32_t)b << ((sh-16)%32);
+    }
+}
+
 int pll_reconfigure(uint8_t mult, uint32_t pclk_i_hz, uint8_t bwsel)
 {
     uint8_t id;
     int config_changed = 0;
+    const pll_config_t *cfg;
+    static pll_config_t loaded_custom;
 
-    if ((mult > 1) || ((bwsel == 1) && (pclk_i_hz < 40000000UL)) || (cm.avinput == AV_TESTPAT) || ds_safe_screen) {
-        if ((mult == 2) && (pclk_i_hz > 50000000UL))
+    if (ds_pll_active || (mult > 1) || ((bwsel == 1) && (pclk_i_hz < 40000000UL)) || (cm.avinput == AV_TESTPAT) || ds_safe_screen) {
+        if (ds_pll_active && (cm.avinput != AV_TESTPAT) && !ds_safe_screen)
+            id = DS_PLL_CUSTOM_ID;
+        else if ((mult == 2) && (pclk_i_hz > 50000000UL))
             id = ((bwsel+1)*7) - 1;
         else
             id = (bwsel*7) + (mult-1);
+        cfg = (id == DS_PLL_CUSTOM_ID) ? &ds_pll_cfg : &pll_configs[id];
 
         config_changed = !!(sys_ctrl & PLL_BYPASS);
 
         pll_reconfig->pll_config_status.reset = 0;
         sys_ctrl &= ~PLL_BYPASS;
 
-        if ((id < sizeof(pll_configs)/sizeof(pll_config_t)) && (id != pll_reconfig->pll_config_status.c_config_id)) {
-            memcpy((void*)pll_reconfig->pll_config_data.data, pll_configs[id].data, sizeof(pll_config_t));
+        if (((id < sizeof(pll_configs)/sizeof(pll_config_t)) || (id == DS_PLL_CUSTOM_ID)) &&
+            ((id != pll_reconfig->pll_config_status.c_config_id) ||
+             ((id == DS_PLL_CUSTOM_ID) && memcmp(&loaded_custom, cfg, sizeof(pll_config_t))))) {
+            memcpy((void*)pll_reconfig->pll_config_data.data, cfg->data, sizeof(pll_config_t));
             pll_reconfig->pll_config_status.t_config_id = id;
+            if (id == DS_PLL_CUSTOM_ID)
+                memcpy(&loaded_custom, cfg, sizeof(pll_config_t));
 
             printf("Reconfiguring FPGA PLL to config %u\n", id);
 
@@ -400,7 +460,8 @@ status_t get_status(tvp_sync_input_t syncinput)
 
         if (memcmp(&tc, &cm.cc, offsetof(avconfig_t, sl_mode)) || (update_cur_vm == 1) || (tc.ds_720p_ar != cm.cc.ds_720p_ar) ||
             (tc.ds_hfilt_off != cm.cc.ds_hfilt_off) || (tc.ds_vblend_off != cm.cc.ds_vblend_off) || (tc.ds_480i != cm.cc.ds_480i) || (tc.ds_vphase != cm.cc.ds_vphase) ||
-            (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos))
+            (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos) ||
+            (tc.ds_native != cm.cc.ds_native))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -676,6 +737,7 @@ void show_safe_screen(const char *reason)
     IOWR_ALTERA_AVALON_PIO_DATA(PIO_0_BASE, sys_ctrl);
     usleep(10);
 
+    ds_pll_active = 0;
     get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
     cm.pclk_o_hz = 27000000UL;
     pll_reconfigure(1, cm.pclk_o_hz, 0);    // PLL 1x from 27MHz
@@ -756,6 +818,12 @@ void program_mode()
 
     dotclk_hz = estimate_dotclk(&vmode_in, h_hz);
     cm.pclk_o_hz = calculate_pclk(pclk_i_hz, &vmode_out, &vm_conf);
+    // native sampling: output on the FPGA PLL at an exact ratio of the ADC clock
+    ds_pll_active = (vm_conf.ds_vdec && vm_conf.ds_pll_n);
+    if (ds_pll_active) {
+        ds_pll_make(vm_conf.ds_pll_n, vm_conf.ds_pll_m, vm_conf.ds_pll_c, &ds_pll_cfg);
+        cm.pclk_o_hz = (uint32_t)(((uint64_t)pclk_i_hz*vm_conf.ds_pll_m)/((uint32_t)vm_conf.ds_pll_n*vm_conf.ds_pll_c));
+    }
 
     // Downscaler firmware: never output anything but 15kHz
     {
@@ -772,7 +840,10 @@ void program_mode()
     }
     ds_safe_screen = 0;
     // expected input frame period in ADC clocks (diagnostics)
+    // (counted in output clocks)
     ds_fperiod_exp = pll_h_total * cm.totlines;
+    if (ds_pll_active)
+        ds_fperiod_exp = (uint32_t)(((uint64_t)ds_fperiod_exp*vm_conf.ds_pll_m)/((uint32_t)vm_conf.ds_pll_n*vm_conf.ds_pll_c));
 
     // Leaving the test pattern (e.g. after a transient unsupported mode while
     // the source switches resolution): re-enable the video path

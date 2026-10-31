@@ -102,6 +102,7 @@ static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standar
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
+static const char* const ds_native_desc[] = { "Standard", "Native (test)" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }
@@ -276,6 +277,7 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "H. filter",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_hfilt_off,  OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 2, value_disp } } },
+    { "Sampling",                               OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_native,     OPT_WRAP,   SETTING_ITEM(ds_native_desc) } } },
     { "H. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_hpos,       OPT_NOWRAP, DS_HPOS_MIN, DS_HPOS_MAX, signed_disp } } },
     { "V. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vpos,       OPT_NOWRAP, DS_VPOS_MIN, DS_VPOS_MAX, signed_disp } } },
     { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },

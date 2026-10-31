@@ -176,7 +176,8 @@ typedef struct {
     alt_u8 ds_unused1;      // was: 720p>480i clock (v0.10 test)
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
-    alt_u8 ds_reserved[5];  // room for future options without changing the layout
+    alt_u8 ds_native;       // 0 = standard sampling, 1 = native sampling + PLL output clock (test)
+    alt_u8 ds_reserved[4];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

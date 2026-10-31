@@ -168,6 +168,11 @@ typedef struct {
     uint8_t ilace;              // 480i output: one field per input frame
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
+    // Native sampling (hfilt = 3): one ADC sample per source pixel, 2.5:1
+    // area average to 512 stored pixels, output on a separate clock from the
+    // FPGA PLL: pclk_out = pclk_in * pll_m / (pll_n * pll_c), an exact ratio
+    // so that the output stays frame locked.
+    uint16_t pll_n, pll_m, pll_c;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -195,6 +200,11 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750,  658, 3760, 525, 2, 5, 2, 19, 0,   0, 0, 1, 1, 2, 2, "720p>480i" },
     { HDMI_720p60,      750,  784, 2240, 525, 2, 3, 2, 19, 0, 160, 1, 0, 1, 2, 2, "4:3>480i" },
     { HDMI_720p60,      750,  658, 3760, 525, 2, 7, 2, 19, 0, 160, 1, 1, 1, 2, 2, "4:3>480i" },
+    // 720p native sampling (test): 1650/line (74.25MHz), 512 stored pixels,
+    // output 1875 clocks/line at 74.25*131/330 = 29.475MHz (240p) or
+    // 74.25*105/264 = 29.53MHz (480i)
+    { HDMI_720p60,      750, 1650, 1875, 262, 2, 2, 2, 19, 0,   0, 0, 3, 0, 0, 0, "720p>240pN", 11, 131, 30 },
+    { HDMI_720p60,      750, 1650, 1875, 525, 2, 2, 2, 19, 0,   0, 0, 3, 1, 2, 2, "720p>480iN", 11, 105, 24 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -228,8 +238,18 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     // pick the variant with the requested output and filter setting; fall
     // back to another filter setting, then to the next output type
     for (pass=0; pass<npass; pass++) {
+        // native sampling rows (hfilt 3) only when selected, preferred then
+        if (cc->ds_native) {
+            for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
+                if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].hfilt == 3) &&
+                    (ds_modes[i].ilace == want[pass]) &&
+                    ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
+                    return &ds_modes[i];
+            }
+        }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
             if ((ds_modes[i].vic == preset->vic) &&
+                (ds_modes[i].hfilt != 3) &&
                 (ds_modes[i].ilace == want[pass]) &&
                 ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
@@ -267,6 +287,9 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     // 15kHz horizontal timings, in fractions of the 63.6us line:
     // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
     rpt = m->x_rpt+1;
+    // native sampling: 5 ADC samples -> 2 stored pixels
+    if (m->hfilt == 3)
+        smp_active = (smp_active*2)/5;
     out_h_synclen = (m->out_h_total*74 + 500)/1000;   // 9-bit field (up to 511)
     out_h_bp_min = (m->out_h_total*81 + 500)/1000;
     out_h_fp_min = (m->out_h_total*22 + 500)/1000;
@@ -334,7 +357,7 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
 
     vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
-    vm_conf->h_skip = m->hfilt;         // ADC samples (hfilt+1) per stored sample
+    vm_conf->h_skip = (m->hfilt == 3) ? 0 : m->hfilt;  // ADC samples (hfilt+1) per stored sample
     vm_conf->x_size = out_active;
     vm_conf->y_size = ds_v_active;
     vm_conf->x_offset = 0;
@@ -367,6 +390,9 @@ static void setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     vm_conf->framesync_line = ds_framesync_line;
     vm_conf->framelock = 1;
     vm_conf->si_pclk_mult = 1;
+    vm_conf->ds_pll_n = m->pll_n;
+    vm_conf->ds_pll_m = m->pll_m;
+    vm_conf->ds_pll_c = m->pll_c;
     vm_conf->tx_pixelrep = 0;
     vm_conf->hdmitx_pixr_ifr = 0;
 

@@ -43,7 +43,9 @@ module linebuf_top (
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
     // Horizontal box filter for oversampled input: 0 = off, 1 = average of 2
-    // ADC samples (h_skip=1), 2 = average of 3 ADC samples (h_skip=2)
+    // ADC samples (h_skip=1), 2 = average of 3 ADC samples (h_skip=2),
+    // 3 = 2.5:1 area average of every ADC sample (h_skip=0, native sampling:
+    // 5 source pixels -> 2 stored pixels, weights 2,2,1 and 1,2,2)
     input [1:0] ds_hfilt,
     // Vertical line selection. Input lines are grouped by (ds_vdec+1) starting
     // at line ds_vstart; in each group the line at position st (0..ds_vdec) is
@@ -332,9 +334,21 @@ reg [9:0] s3R_b, s3G_b, s3B_b;
 wire [17:0] h3R = s3R_b * 8'd171;   // /3 ~ *171/512
 wire [17:0] h3G = s3G_b * 8'd171;
 wire [17:0] h3B = s3B_b * 8'd171;
-wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? h3R[16:9] : Rr_b);
-wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? h3G[16:9] : Gr_b);
-wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? h3B[16:9] : Br_b);
+// 2.5:1 area filter: phase (0..4) of the ADC sample in a group of 5 and the
+// index of the stored pixel; a pixel is produced at phases 2 and 4
+reg [2:0] ph_a;
+reg [10:0] xs_a;
+wire ph_first = (xpos_i == 11'h0);
+wire [2:0] ph_next = ph_first ? 3'h0 : ((ph_a == 3'h4) ? 3'h0 : ph_a + 3'h1);
+wire [10:0] xs_next = ph_first ? 11'h0 : ((ph_a == 3'h4) ? xs_a + 11'h2 : xs_a);
+wire hf25 = (ds_hfilt == 2'h3);
+reg [10:0] s25R_b, s25G_b, s25B_b;
+wire [18:0] h25R = s25R_b * 8'd205;     // /5 ~ *205/1024
+wire [18:0] h25G = s25G_b * 8'd205;
+wire [18:0] h25B = s25B_b * 8'd205;
+wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? h3R[16:9] : (hf25 ? h25R[17:10] : Rr_b));
+wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? h3G[16:9] : (hf25 ? h25G[17:10] : Gr_b));
+wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? h3B[16:9] : (hf25 ? h25B[17:10] : Br_b));
 
 // blend accumulator: one line, 9 bits per channel
 reg [26:0] acc_mem [0:1023] /* synthesis ramstyle = "M9K" */;
@@ -350,8 +364,15 @@ always @(posedge PCLK_CAP_i) begin
     {R_a, G_a, B_a} <= {R_i, G_i, B_i};
     {R_b, G_b, B_b} <= {R_a, G_a, B_a};
     {R_c, G_c, B_c} <= {R_b, G_b, B_b};
-    x_a <= xpos_i;
-    v_a <= DE_i & datavalid_i & wr_x_ok;
+    ph_a <= ph_next;
+    xs_a <= xs_next;
+    if (hf25) begin
+        x_a <= (ph_next == 3'h4) ? xs_next + 11'h1 : xs_next;
+        v_a <= DE_i & ((ph_next == 3'h2) | (ph_next == 3'h4)) & (xs_next < 11'd512);
+    end else begin
+        x_a <= xpos_i;
+        v_a <= DE_i & datavalid_i & wr_x_ok;
+    end
 
     // stage B (R_a = selected sample, R_b/R_c = the previous ADC samples)
     s2R_b <= {1'b0, R_a} + {1'b0, R_b};
@@ -360,6 +381,16 @@ always @(posedge PCLK_CAP_i) begin
     s3R_b <= {2'b0, R_a} + {2'b0, R_b} + {2'b0, R_c};
     s3G_b <= {2'b0, G_a} + {2'b0, G_b} + {2'b0, G_c};
     s3B_b <= {2'b0, B_a} + {2'b0, B_b} + {2'b0, B_c};
+    // 2.5:1: phase 2 -> 2*s0 + 2*s1 + s2, phase 4 -> s2 + 2*s3 + 2*s4 (R_a newest)
+    if (ph_a == 3'h2) begin
+        s25R_b <= {2'b0, R_c, 1'b0} + {2'b0, R_b, 1'b0} + {3'b0, R_a};
+        s25G_b <= {2'b0, G_c, 1'b0} + {2'b0, G_b, 1'b0} + {3'b0, G_a};
+        s25B_b <= {2'b0, B_c, 1'b0} + {2'b0, B_b, 1'b0} + {3'b0, B_a};
+    end else begin
+        s25R_b <= {3'b0, R_c} + {2'b0, R_b, 1'b0} + {2'b0, R_a, 1'b0};
+        s25G_b <= {3'b0, G_c} + {2'b0, G_b, 1'b0} + {2'b0, G_a, 1'b0};
+        s25B_b <= {3'b0, B_c} + {2'b0, B_b, 1'b0} + {2'b0, B_a, 1'b0};
+    end
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
     x_b <= x_a;
     v_b <= v_a;

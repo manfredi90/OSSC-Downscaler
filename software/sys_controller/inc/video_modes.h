@@ -182,6 +182,9 @@ typedef struct {
     uint8_t ds_ilace;       // 480i: one output field per input frame
     uint8_t ds_field_cfg;   // {B_n, B_st, A_n, A_st} 2 bits each
     uint8_t ds_fswap;       // 480i: field B in the odd field
+    uint16_t ds_pll_n;      // separate output clock: pclk_out = pclk_in*M/(N*C), 0 = output at ADC clock
+    uint16_t ds_pll_m;
+    uint16_t ds_pll_c;
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.
