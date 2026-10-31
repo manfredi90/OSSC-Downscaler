@@ -243,6 +243,7 @@ inline void TX_enable(tx_mode_t mode)
 // [bypass][high count 8][odd][low count 8]. The chain is stored so that the
 // last bit (C4 lsb) is shifted first (see pll_reconfig_top).
 #define DS_PLL_CUSTOM_ID 15
+#define DS_PLL_PCLK_MAX  66000000UL    // see pclk_5x in ossc.sdc
 static pll_config_t ds_pll_cfg;
 static uint8_t ds_pll_active;
 
@@ -823,6 +824,13 @@ void program_mode()
     if (ds_pll_active) {
         ds_pll_make(vm_conf.ds_pll_n, vm_conf.ds_pll_m, vm_conf.ds_pll_c, &ds_pll_cfg);
         cm.pclk_o_hz = (uint32_t)(((uint64_t)pclk_i_hz*vm_conf.ds_pll_m)/((uint32_t)vm_conf.ds_pll_n*vm_conf.ds_pll_c));
+        // the FPGA timing is constrained for at most DS_PLL_PCLK_MAX on the PLL
+        if (cm.pclk_o_hz > DS_PLL_PCLK_MAX) {
+            ds_pll_active = 0;
+            cm.id = -1;
+            show_safe_screen("  Unsupported");
+            return;
+        }
     }
 
     // Downscaler firmware: never output anything but 15kHz
