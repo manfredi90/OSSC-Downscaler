@@ -98,6 +98,8 @@ Known issues and next steps
 
 * **720p Wide (180p) shimmers** on moving pictures; to be fixed.
 * **1080p input** is not supported yet; planned.
+* **Component input** (YPbPr / RGsB on AV1, AV2 or AV3) should work but has
+  not been tested yet; only the VGA input (RGBHV) has been verified.
 
 
 Building
