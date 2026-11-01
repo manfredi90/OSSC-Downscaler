@@ -85,6 +85,8 @@ int ds_settings_load() {
         tc.ds_width = DS_WIDTH_MIN;
     if (tc.ds_width > DS_WIDTH_MAX)
         tc.ds_width = DS_WIDTH_MAX;
+    if (tc.s480p_mode > 2)
+        tc.s480p_mode = 0;
     if (tc.ds_720p_ar > 2)
         tc.ds_720p_ar = 0;
     memcpy(&ts, &blob.ts, sizeof(settings_t));

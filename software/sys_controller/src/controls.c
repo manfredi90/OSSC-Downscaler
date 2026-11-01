@@ -348,25 +348,8 @@ int parse_control()
             break;
         case RC_PHASE_MINUS:
         case RC_PHASE_PLUS:
-            if (ts.phase_hotkey_enable && !ds_safe_screen && vm_conf.ds_vdec) {
-                // downscaler modes share one sampling phase setting
-                uint8_t *ph = ds_cur_phase_ptr(&tc);
-                if (i == RC_PHASE_MINUS)
-                    *ph = *ph ? (*ph - 1) : SAMPLER_PHASE_MAX;
-                else
-                    *ph = (*ph < SAMPLER_PHASE_MAX) ? (*ph + 1) : 0;
-
-                if (!menu_active) {
-                    strncpy((char*)osd->osd_array.data[0][0], "Sampling phase", OSD_CHAR_COLS);
-                    sampler_phase_disp(*ph);
-                    strncpy((char*)osd->osd_array.data[1][0], menu_row2, OSD_CHAR_COLS);
-                    osd->osd_config.status_refresh = 1;
-                    osd->osd_row_color.mask = 0;
-                    osd->osd_sec_enable[0].mask = 3;
-                    osd->osd_sec_enable[1].mask = 0;
-                } else {
-                    render_osd_page();
-                }
+            if (vm_conf.ds_vdec) {
+                // downscaler modes: fixed sampling phase
             } else if (ts.phase_hotkey_enable && !ds_safe_screen && (cm.id >= 0)) {
                 if (i == RC_PHASE_MINUS)
                     video_modes_plm[cm.id].sampler_phase = video_modes_plm[cm.id].sampler_phase ? (video_modes_plm[cm.id].sampler_phase - 1) : SAMPLER_PHASE_MAX;

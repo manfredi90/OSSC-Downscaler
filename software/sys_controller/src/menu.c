@@ -22,6 +22,7 @@
 #include "menu.h"
 #include "ds_settings.h"
 int ds_diagnostics();
+int ds_input_info();
 #include "av_controller.h"
 #include "firmware.h"
 #include "userdata.h"
@@ -102,6 +103,7 @@ static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standar
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3", "Wide (180p)" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
+static const char* const ds_480p_in_desc[] = { "Auto", "720x480", "640x480" };
 static const char* const ds_native_desc[] = { "Standard", "Full res" };
 static const char* const ds_fixlines_desc[] = { "260-264", "262 fixed" };
 
@@ -275,6 +277,7 @@ MENU(menu_settings, P99_PROTECT({ \
 MENU(menu_downscaler, P99_PROTECT({ \
     { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
+    { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
     { "720p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
     { "H. filter",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_hfilt_off,  OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
@@ -282,11 +285,10 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "Sampling",                               OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_native,     OPT_WRAP,   SETTING_ITEM(ds_native_desc) } } },
     { "Width",                                  OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_width,      OPT_NOWRAP, DS_WIDTH_MIN, DS_WIDTH_MAX, ds_width_disp } } },
     { "240p lines",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_fixlines,   OPT_WRAP,   SETTING_ITEM(ds_fixlines_desc) } } },
-    { "Phase 720p",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_phase,      OPT_WRAP, 0, SAMPLER_PHASE_MAX, sampler_phase_disp } } },
-    { "Phase 480p/VGA",                         OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_phase_sd,   OPT_WRAP, 0, SAMPLER_PHASE_MAX, sampler_phase_disp } } },
     { "H. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_hpos,       OPT_NOWRAP, DS_HPOS_MIN, DS_HPOS_MAX, signed_disp } } },
     { "V. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vpos,       OPT_NOWRAP, DS_VPOS_MIN, DS_VPOS_MAX, signed_disp } } },
     { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },
+    { "<Input info    >",                       OPT_FUNC_CALL,          { .fun = { ds_input_info, NULL } } },
 }))
 
 

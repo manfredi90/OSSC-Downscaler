@@ -227,11 +227,15 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_640x480p60,  525,  800, 2400, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "VGA>240pF",  0, 0, 0, 1, 1 },
     { HDMI_640x480p60,  525,  800, 2400, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "VGA>480iF",  0, 0, 0, 1, 1 },
     // 720p "Wide" (whole 16:9 picture letterboxed): 4:1 in both directions,
-    // 1248x720 -> 312x180 (4 ADC samples and 4 lines averaged per pixel),
-    // 7 clocks per pixel. 412.5 stored samples per line: smp_h_total 412 plus
-    // h_total_adj (1650 ADC samples). 52 line buffer slots (4:2:2) absorb the
-    // drift of 720 input lines read in 180 output lines. 240p only.
-    { HDMI_720p60,      750,  412, 2730, 262, 3, 6, 3,  0, 0,  16, 2, 2, 0, 0, 0, "720pW>180p", 0, 0, 0, 1, 0, 1 },
+    // 1232x720 -> 308x180 (4 ADC samples and 4 lines averaged per pixel; 24
+    // pixels cropped per side), 7 clocks per pixel. 412.5 stored samples per
+    // line: smp_h_total 412 plus h_total_adj (1650 ADC samples). 53 line
+    // buffer slots (4:2:2) absorb the drift of 720 input lines read in 180
+    // output lines.
+    { HDMI_720p60,      750,  412, 2730, 262, 3, 6, 3,  0, 0,  24, 2, 2, 0, 0, 0, "720pW>180p", 0, 0, 0, 1, 0, 1 },
+    //   480i: 360 rows, 180 per field; field A = lines 0-1 of each group of 4,
+    //   field B = lines 2-3 (averaged, or lines 0 / 2 without line blending)
+    { HDMI_720p60,      750,  412, 2730, 525, 3, 6, 3,  0, 0,  24, 2, 2, 1, 3, 2, "720pW>480i", 0, 0, 0, 1, 0, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -328,6 +332,31 @@ static uint32_t ds_gcd(uint32_t a, uint32_t b) {
 
 static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt);
 
+// Line written in each group (st, 0..vdec) and number of lines averaged into
+// it (n, ending at st), for field A (240p: every field) and field B (480i).
+static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n_a, int *st_b, int *n_b) {
+    if (m->ilace && m->wide) {
+        // groups of 4 lines: A = lines 0-1, B = lines 2-3
+        *st_a = cc->ds_vblend_off ? 0 : 1;
+        *n_a = cc->ds_vblend_off ? 1 : 2;
+        *st_b = cc->ds_vblend_off ? 2 : 3;
+        *n_b = *n_a;
+    } else if (m->ilace) {
+        *st_a = 0;
+        *n_a = 1;
+        *st_b = m->fB_st;
+        *n_b = m->fB_n;
+    } else if (!cc->ds_vblend_off) {
+        // average the whole group, written at its last line
+        *st_a = *st_b = m->vdec;
+        *n_a = *n_b = m->vdec+1;
+    } else {
+        // the middle line of the group (720p: line 1 of 3, 480p: line 0 of 2)
+        *st_a = *st_b = m->vdec/2;
+        *n_a = *n_b = 1;
+    }
+}
+
 static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt,
                         uint32_t fin_khz, uint32_t hin, uint32_t vin, uint8_t ilace, uint32_t act, uint32_t target_pm,
                         uint8_t fixed_lines, uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
@@ -419,10 +448,9 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t p = cc->ds_vphase % (m->vdec+1);
     int64_t eps = DS_T0_MARGIN_OC*u_oc;
     int64_t lo, hi, lo_b, hi_b;
-    int st_a = m->ilace ? 0 : (m->vdec/2), st_b = m->fB_st;
+    int st_a, n_a, st_b, n_b;
 
-    if (!m->ilace && !cc->ds_vblend_off)
-        st_a = m->vdec;     // blending: written at the last line of the group
+    ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);
 
     lo = (y0 + g*(k-1) + st_a + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps;
     hi = (y0 + g*d + st_a + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps;
@@ -484,6 +512,16 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     rpt = m->x_rpt+1;
 
     if (m->t0_auto) {
+        // Frame lock uses the measured lines per input frame: a source a few
+        // lines off the standard total would otherwise drift and be resynced
+        // over and over (visible as stutter).
+        memcpy(&me, m, sizeof(ds_mode_t));
+        if ((vm_in->timings.v_total != m->in_v_total) && (abs((int)vm_in->timings.v_total - (int)m->in_v_total) <= 8))
+            me.in_v_total = vm_in->timings.v_total;
+        m = &me;
+    }
+
+    if (m->t0_auto) {
         // output line length / PLL ratio for the requested width
         uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
         // "Width": 100% = 80% of the line
@@ -498,7 +536,6 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
                               0, &oh, &lines, &n, &mm, &c) != 0))
                 return -1;
         }
-        memcpy(&me, m, sizeof(ds_mode_t));
         me.out_h_total = oh;
         me.out_v_total = lines;
         me.pll_n = n;
@@ -621,14 +658,11 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
-    if (m->ilace) {
-        vm_conf->ds_field_cfg = (0 | (1<<2)) | ((m->fB_st | (m->fB_n<<2)) << 4);
-    } else if (vm_conf->ds_vblend) {
-        // average the whole group (n = 4 is coded as 0)
-        vm_conf->ds_field_cfg = m->vdec | (((m->vdec+1) & 3)<<2);
-    } else {
-        // pick the middle line of the group (720p: line 1 of 3, 480p: line 0 of 2)
-        vm_conf->ds_field_cfg = (m->vdec/2) | (1<<2);
+    {
+        // n = 4 is coded as 0
+        int st_a, n_a, st_b, n_b;
+        ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);
+        vm_conf->ds_field_cfg = (st_a & 3) | ((n_a & 3)<<2) | ((st_b & 3)<<4) | ((n_b & 3)<<6);
     }
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_vdec = m->vdec;
