@@ -373,6 +373,9 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
     for (oh=oh_min; oh<=oh_max; oh++) {
         for (li_i=0; li_i<n_lines; li_i++) {
             uint32_t fo2 = ilace ? 525 : 2*lines_opt[li_i];
+            uint32_t hfreq = ((uint32_t)vm_in->timings.v_hz_x100*fo2)/200;     // output line rate (Hz)
+            if ((hfreq < DS_HFREQ_MIN) || (hfreq > DS_HFREQ_MAX))
+                continue;
             uint32_t num = oh*fo2, den = 2*hin*vin, g = ds_gcd(num, den), k, n;
             uint32_t err = (act*1000)/oh;
 

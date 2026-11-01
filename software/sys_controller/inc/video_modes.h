@@ -192,8 +192,9 @@ typedef struct {
 } vm_proc_config_t;
 
 // Allowed output line rate range (Hz). Anything else is never output.
-#define DS_HFREQ_MIN        14500
-#define DS_HFREQ_MAX        16500
+// output line rate limits (Hz): older 15kHz monitors may not sync outside
+#define DS_HFREQ_MIN        14800
+#define DS_HFREQ_MAX        16000
 
 typedef enum {
     DS_CSYNC_OFF = 0,

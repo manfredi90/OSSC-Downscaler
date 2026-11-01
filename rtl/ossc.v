@@ -349,9 +349,10 @@ end
 // 15kHz output watchdog (independent of the CPU).
 // Measures the period of the generated HSYNC with the fixed 27MHz clock. If
 // 16 consecutive lines are shorter than WD_MIN_LINE_CLKS (i.e. line rate above
-// ~16.9kHz), all syncs and video are suppressed until 16 consecutive lines are
+// ~16.4kHz), all syncs and video are suppressed until 16 consecutive lines are
 // back in range. A 15kHz TV without sync just free-runs, which is harmless.
-localparam WD_MIN_LINE_CLKS = 12'd1598;     // 27MHz / 1598 = 16.9kHz
+// (The firmware itself never programs more than 16.0kHz.)
+localparam WD_MIN_LINE_CLKS = 12'd1646;     // 27MHz / 1646 = 16.4kHz
 reg [2:0] wd_hs_sync;
 reg [11:0] wd_line_ctr;
 reg [3:0] wd_fast_cnt, wd_ok_cnt;

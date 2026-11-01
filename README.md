@@ -20,11 +20,11 @@ Safety
 
 * **15kHz output only.** Three independent layers keep the output in range:
   1. every output mode is computed for 15.6–15.9kHz (240p) or 15.7kHz (480i),
-     and the firmware refuses any mode outside 14.5–16.5kHz;
+     and the firmware refuses any mode outside 14.8–16.0kHz;
   2. anything the firmware cannot convert (no sync, unsupported input,
      out-of-range result) shows an internal 15.73kHz 240p test pattern;
   3. a hardware watchdog in the FPGA, independent of the CPU, blanks video and
-     all syncs if the output line rate exceeds ~16.9kHz for 16 lines.
+     all syncs if the output line rate exceeds ~16.4kHz for 16 lines.
 * **The official firmware is never modified.** The image only fits the
   secondary slot (flash 0x80000–0xEFFFF). This firmware's settings live in a
   single sector of its own (0xF0000) and it never reads or writes the official
