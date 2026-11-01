@@ -187,6 +187,7 @@ typedef struct {
     uint16_t ds_pll_c;
     uint16_t ds_lb_stride;  // line buffer layout 3 (YCbCr 4:2:2): words per line
     uint8_t ds_lb_slots;    //   number of lines
+    uint8_t ds_lb_rgb;      //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
     uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 

@@ -26,7 +26,7 @@
 #include "utils.h"
 
 #define DS_SETTINGS_MAGIC   0x4F534453  // "OSDS"
-#define DS_SETTINGS_VERSION 2
+#define DS_SETTINGS_VERSION 3     // 2: v0.12-v0.16 (migrated on load)
 
 typedef struct {
     uint32_t magic;
@@ -57,7 +57,7 @@ int ds_settings_load() {
     memcpy(&blob, f, sizeof(blob));
 
     if ((blob.magic != DS_SETTINGS_MAGIC) ||
-        (blob.version != DS_SETTINGS_VERSION) ||
+        ((blob.version != DS_SETTINGS_VERSION) && (blob.version != 2)) ||
         (blob.len != sizeof(ds_settings_blob_t)) ||
         (blob.crc != blob_crc(&blob)))
     {
@@ -73,6 +73,20 @@ int ds_settings_load() {
         tc.ds_vpos = SIGNED_NUMVAL_ZERO;
     if (tc.ds_width == 0)
         tc.ds_width = SIGNED_NUMVAL_ZERO;
+    if (blob.version == 2) {
+        // v0.16 and earlier: one sampling phase for all inputs; width in % of
+        // the line relative to 80% (now in % of the standard width)
+        int d = (int)tc.ds_width - SIGNED_NUMVAL_ZERO;
+        d = (d >= 0) ? (d*5 + 2)/4 : -((-d*5 + 2)/4);
+        tc.ds_phase_sd = tc.ds_phase;
+        tc.ds_width = SIGNED_NUMVAL_ZERO + d;
+    }
+    if (tc.ds_width < DS_WIDTH_MIN)
+        tc.ds_width = DS_WIDTH_MIN;
+    if (tc.ds_width > DS_WIDTH_MAX)
+        tc.ds_width = DS_WIDTH_MAX;
+    if (tc.ds_720p_ar > 2)
+        tc.ds_720p_ar = 0;
     memcpy(&ts, &blob.ts, sizeof(settings_t));
     memcpy(rc_keymap, blob.rc_keymap, sizeof(blob.rc_keymap));
     printf("DS settings loaded\n");

@@ -58,7 +58,8 @@ module scanconverter (
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input [9:0] lb_stride,      // line buffer layout 3: words per line
-    input [4:0] lb_slots,       // line buffer layout 3: number of lines
+    input [5:0] lb_slots,       // line buffer layout 3: number of lines
+    input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
     input [12:0] ds_hofs,       // output position at the input frame start (clocks, 0 = line start)
     input ext_sync_mode,
     input ext_frame_change_i,
@@ -203,10 +204,10 @@ reg frame_change_sync1_reg, frame_change_sync2_reg, frame_change_prev, frame_cha
 // field A frames, so that field A always ends up in the ODD output field.
 reg in_field;
 // line buffer layout 3: number of lines and base address of the line being read
-wire [10:0] LB_NUM = (lb_layout == 2'h3) ? {6'h0, lb_slots} : NUM_LINE_BUFFERS;
+wire [10:0] LB_NUM = (lb_layout == 2'h3) ? {5'h0, lb_slots} : NUM_LINE_BUFFERS;
 reg [12:0] lb_rd_base, lb_rd_base_next;
 always @(posedge PCLK_OUT_i)
-    lb_rd_base_next <= ypos_lb_next[4:0] * lb_stride;
+    lb_rd_base_next <= ypos_lb_next[5:0] * lb_stride;
 reg [19:0] fp_ctr;
 wire frame_change = frame_change_sync2_reg;
 
@@ -398,6 +399,7 @@ linebuf_top #(
     .in_field(in_field),
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),
+    .lb_rgb(lb_rgb),
     .lb_rd_base(lb_rd_base),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),

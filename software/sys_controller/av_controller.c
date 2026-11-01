@@ -527,7 +527,7 @@ status_t get_status(tvp_sync_input_t syncinput)
 
     {
         int ds_csync_changed = (tc.ds_csync != cm.cc.ds_csync);
-        int ds_phase_changed = (tc.ds_phase != cm.cc.ds_phase);
+        int ds_phase_changed = (tc.ds_phase != cm.cc.ds_phase) || (tc.ds_phase_sd != cm.cc.ds_phase_sd);
 
         cm.cc = tc;
         update_cur_vm = 0;
@@ -535,7 +535,7 @@ status_t get_status(tvp_sync_input_t syncinput)
         if (ds_csync_changed)
             update_sc_config();
         if (ds_phase_changed && vm_conf.ds_vdec && !ds_safe_screen)
-            set_sampler_phase(cm.cc.ds_phase, 1);
+            set_sampler_phase(ds_cur_phase(&cm.cc), 1);
     }
 
     return status;
@@ -707,7 +707,7 @@ void update_sc_config()
                           (((vm_conf.x_size >> 12) & 1) << 3) |
                           (((vm_conf.x_rpt >> 4) & 1) << 4) |
                           (((vm_out->timings.h_backporch >> 9) & 1) << 5);
-        sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x1f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16)) : 0;
+        sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x3f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16) | ((alt_u32)vm_conf.ds_lb_rgb << 29)) : 0;
     }
 
     sc->hv_in_config = hv_in_config;
@@ -880,7 +880,7 @@ void program_mode()
 
     tvp_source_setup(target_type,
                      pll_h_total,
-                     (cm.cc.adc_pll_bw == 0) ? vmode_in.timings.h_total : pll_h_total<<(cm.cc.adc_pll_bw-1),
+                     (cm.cc.adc_pll_bw == 0) ? (ds_pll_active ? pll_h_total : vmode_in.timings.h_total) : pll_h_total<<(cm.cc.adc_pll_bw-1),   // full resolution: same TVP PLL bandwidth for Wide (h_skip 3) as for the other rows
                      cm.clkcnt,
                      cm.cc.tvp_hpll2x && (pclk_i_hz < 50000000UL),
                      (alt_u8)h_synclen_px,
@@ -889,7 +889,7 @@ void program_mode()
     set_lpf(cm.cc.video_lpf);
     set_csc(cm.cc.ypbpr_cs);
 
-    set_sampler_phase(vm_conf.ds_vdec ? cm.cc.ds_phase : video_modes_plm[cm.id].sampler_phase, 0);
+    set_sampler_phase(vm_conf.ds_vdec ? ds_cur_phase(&cm.cc) : video_modes_plm[cm.id].sampler_phase, 0);
 
     fpga_pll_config_changed = pll_reconfigure(vm_conf.si_pclk_mult, pclk_i_hz, cm.cc.fpga_pll_bw);
 
@@ -1092,6 +1092,18 @@ int init_hw()
 // measured / expected input frame period in clocks (P, low 10 bits; the two
 // must be equal and stable). Repeat to refresh.
 extern char func_ret_status[];
+// Downscaler sampling phase: one setting for 720p, one for 480p / VGA (at
+// 25-27MHz with one sample per pixel the best phase differs from 720p)
+uint8_t* ds_cur_phase_ptr(avconfig_t *c) {
+    if ((cm.id >= 0) && (video_modes_plm[cm.id].group != GROUP_720P))
+        return &c->ds_phase_sd;
+    return &c->ds_phase;
+}
+
+uint8_t ds_cur_phase(avconfig_t *c) {
+    return *ds_cur_phase_ptr(c);
+}
+
 int ds_diagnostics() {
     alt_u32 st = sc->fe_status.data;
 

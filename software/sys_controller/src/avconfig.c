@@ -45,6 +45,7 @@ const avconfig_t tc_default = {
     .l3_mode = 0,
     .ds_csync = 3,  // standard (equalizing + serrations)
     .ds_phase = 0x10,
+    .ds_phase_sd = 0x10,
     .ds_hpos = SIGNED_NUMVAL_ZERO,
     .ds_vpos = SIGNED_NUMVAL_ZERO,
     .ds_width = SIGNED_NUMVAL_ZERO,

@@ -350,14 +350,15 @@ int parse_control()
         case RC_PHASE_PLUS:
             if (ts.phase_hotkey_enable && !ds_safe_screen && vm_conf.ds_vdec) {
                 // downscaler modes share one sampling phase setting
+                uint8_t *ph = ds_cur_phase_ptr(&tc);
                 if (i == RC_PHASE_MINUS)
-                    tc.ds_phase = tc.ds_phase ? (tc.ds_phase - 1) : SAMPLER_PHASE_MAX;
+                    *ph = *ph ? (*ph - 1) : SAMPLER_PHASE_MAX;
                 else
-                    tc.ds_phase = (tc.ds_phase < SAMPLER_PHASE_MAX) ? (tc.ds_phase + 1) : 0;
+                    *ph = (*ph < SAMPLER_PHASE_MAX) ? (*ph + 1) : 0;
 
                 if (!menu_active) {
                     strncpy((char*)osd->osd_array.data[0][0], "Sampling phase", OSD_CHAR_COLS);
-                    sampler_phase_disp(tc.ds_phase);
+                    sampler_phase_disp(*ph);
                     strncpy((char*)osd->osd_array.data[1][0], menu_row2, OSD_CHAR_COLS);
                     osd->osd_config.status_refresh = 1;
                     osd->osd_row_color.mask = 0;

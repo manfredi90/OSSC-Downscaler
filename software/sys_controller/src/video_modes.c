@@ -177,6 +177,11 @@ typedef struct {
     // stored pixel (YCbCr 4:2:2), output 2 clocks per pixel on the PLL clock;
     // the line buffer timing is computed (t0_auto) instead of out_v_backporch.
     uint8_t t0_auto;
+    // full resolution: store RGB, one pixel per word, instead of YCbCr 4:2:2
+    // (480p / VGA: few lines of read/write drift, the line buffer has room)
+    uint8_t rgb444;
+    // 720p "Wide": 180 active lines centered in the 240 line field
+    uint8_t wide;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -216,10 +221,17 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_720p60,      750, 1650, 3600, 262, 2, 2, 3,  0, 0, 160, 1, 0, 0, 0, 0, "4:3>240pF",  0, 0, 0, 1 },
     { HDMI_720p60,      750, 1650, 3600, 525, 2, 2, 3,  0, 0, 160, 1, 0, 1, 2, 2, "4:3>480iF",  0, 0, 0, 1 },
     // 480p: 720 pixels (858/line, 27MHz), VGA: 640 pixels (800/line, 25.175MHz), 3 clocks per pixel
-    { HDMI_480p60,      525,  858, 2700, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "480p>240pF", 0, 0, 0, 1 },
-    { HDMI_480p60,      525,  858, 2700, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "480p>480iF", 0, 0, 0, 1 },
-    { HDMI_640x480p60,  525,  800, 2400, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "VGA>240pF",  0, 0, 0, 1 },
-    { HDMI_640x480p60,  525,  800, 2400, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "VGA>480iF",  0, 0, 0, 1 },
+    //   (RGB 4:4:4: one word per pixel, 11-12 line buffer slots)
+    { HDMI_480p60,      525,  858, 2700, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "480p>240pF", 0, 0, 0, 1, 1 },
+    { HDMI_480p60,      525,  858, 2700, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "480p>480iF", 0, 0, 0, 1, 1 },
+    { HDMI_640x480p60,  525,  800, 2400, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "VGA>240pF",  0, 0, 0, 1, 1 },
+    { HDMI_640x480p60,  525,  800, 2400, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "VGA>480iF",  0, 0, 0, 1, 1 },
+    // 720p "Wide" (whole 16:9 picture letterboxed): 4:1 in both directions,
+    // 1248x720 -> 312x180 (4 ADC samples and 4 lines averaged per pixel),
+    // 7 clocks per pixel. 412.5 stored samples per line: smp_h_total 412 plus
+    // h_total_adj (1650 ADC samples). 52 line buffer slots (4:2:2) absorb the
+    // drift of 720 input lines read in 180 output lines. 240p only.
+    { HDMI_720p60,      750,  412, 2730, 262, 3, 6, 3,  0, 0,  16, 2, 2, 0, 0, 0, "720pW>180p", 0, 0, 0, 1, 0, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -235,6 +247,16 @@ static const ds_mode_t ds_modes[] = {
 
 #define DS_OUT_H_TOTAL_MAX  4095
 #define DS_PLL_OUT_MAX_KHZ  66000   // see pclk_5x in ossc.sdc
+// Cyclone IV PLL: phase detector input >= 5MHz (datasheet). The scan chain
+// reuses the charge pump / loop filter bits of the stock low bandwidth
+// configs (M = 100-120), so M is kept in a similar range: v0.16 used
+// M = 262 at 3.6MHz for VGA, which showed shimmer.
+#define DS_PLL_PFD_MIN_KHZ  5000
+#define DS_PLL_M_MAX        200
+#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : DS_OUT_V_ACTIVE)
+// line buffer words per stored line / number of lines (layout 3)
+#define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : (((w)+1)/2))
+#define DS_LB_SLOTS(st)     (((8192/(st)) > 63) ? 63 : (8192/(st)))
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
 static uint8_t ds_mode_sampling(const ds_mode_t *m) {
@@ -265,15 +287,15 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
                 if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
                     (ds_modes[i].ilace == want[pass]) &&
-                    ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar)))
+                    ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == cc->ds_720p_ar)))
                     return &ds_modes[i];
             }
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
             if ((ds_modes[i].vic == preset->vic) &&
-                (ds_mode_sampling(&ds_modes[i]) == 0) &&
+                ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
-                ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == !!cc->ds_720p_ar))) {
+                ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == cc->ds_720p_ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
                     return &ds_modes[i];
                 if (!match)
@@ -290,8 +312,8 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
 // pclk_out = pclk_in * M / (N * C) and the output must stay frame locked, so
 //   out_h * (output lines per input frame) / (h_total_in * v_total_in) = M / (N * C)
 // exactly. Only some out_h have a solution with M, C <= 510 in the PLL
-// limits (VCO 600-1300MHz, phase detector 3.5-10MHz like the low bandwidth
-// configs, output 25-66MHz); for 240p the field may also have 260-264 lines
+// limits (VCO 600-1300MHz, phase detector 5-10MHz, M 50-200 near the low
+// bandwidth configs whose loop filter settings are reused, output 25-66MHz); for 240p the field may also have 260-264 lines
 // (15.6-15.9kHz) to find more of them, unless fixed_lines asks for 262 only
 // (exact standard height, coarser width steps). Picks the line length whose active
 // part (act clocks) is closest to target_pm (per mille of the line).
@@ -332,7 +354,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                 continue;
             num /= g;
             den /= g;
-            for (k=1; num*k <= 510; k++) {
+            for (k=1; num*k <= DS_PLL_M_MAX; k++) {
                 uint32_t m = num*k, nd = den*k, sol = 0;
                 if (m < 50)
                     continue;
@@ -344,7 +366,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     pfd = fin_khz/n;
                     vco = (fin_khz*m)/n;
                     out = vco/c;
-                    if ((c > 510) || (pfd < 3500) || (pfd > 10000) || (vco < 600000) || (vco > 1300000) ||
+                    if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < 600000) || (vco > 1300000) ||
                         (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ))
                         continue;
                     // the line buffer must absorb the read/write drift of this line rate
@@ -393,7 +415,7 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1;
     int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch;
     int64_t off_out = out_offset;  // output hsync + back porch
-    int64_t g = m->vdec+1, k = DS_OUT_V_ACTIVE, d = 8192/((w+1)/2);
+    int64_t g = m->vdec+1, k = DS_OUT_V_ROWS(m), d = DS_LB_SLOTS(DS_LB_STRIDE(m, w));
     int64_t p = cc->ds_vphase % (m->vdec+1);
     int64_t eps = DS_T0_MARGIN_OC*u_oc;
     int64_t lo, hi, lo_b, hi_b;
@@ -401,8 +423,6 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 
     if (!m->ilace && !cc->ds_vblend_off)
         st_a = m->vdec;     // blending: written at the last line of the group
-    if (d > 31)
-        d = 31;
 
     lo = (y0 + g*(k-1) + st_a + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps;
     hi = (y0 + g*d + st_a + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps;
@@ -451,7 +471,13 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_in->timings.h_backporch = (vm_in->timings.h_backporch*m->smp_h_total + in_h_total/2)/in_h_total;
     vm_in->timings.h_active = smp_active;
     vm_in->timings.h_total = m->smp_h_total;
-    vm_in->timings.h_total_adj = 0;
+    // fractional samples per line (Wide: 1650 ADC samples = 4 x 412.5), in
+    // the 1/20 sample units of h_total_adj (see pll_h_total)
+    {
+        uint16_t skip1 = (m->hfilt == 2) ? 4 : (m->hfilt+1);
+        uint16_t rem = (in_h_total > skip1*m->smp_h_total) ? (in_h_total - skip1*m->smp_h_total) : 0;
+        vm_in->timings.h_total_adj = m->t0_auto ? (rem*20)/skip1 : 0;
+    }
 
     memcpy(vm_out, vm_in, sizeof(mode_data_t));
 
@@ -460,7 +486,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     if (m->t0_auto) {
         // output line length / PLL ratio for the requested width
         uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
-        uint32_t target_pm = 800 + 10*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
+        // "Width": 100% = 80% of the line
+        uint32_t target_pm = 800 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
         uint16_t oh, lines, n, mm, c;
 
         if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
@@ -530,10 +557,14 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // to the input frame (framesync_line), a longer one earlier. Moving the
     // picture down beyond the front porch limit hides the bottom lines.
     {
+        // Wide: 180 rows centered where the 240 rows would be (the extra
+        // back / front porch lines are black)
+        int rows = DS_OUT_V_ROWS(m);
+        int pad = (DS_OUT_V_ACTIVE - rows)/2;
         int field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
-        int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - DS_OUT_V_ACTIVE;
-        int vbp = ((m->t0_auto || (m->out_v_backporch > vbp_max)) ? vbp_max : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
-        int v_active = DS_OUT_V_ACTIVE;
+        int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - rows;
+        int vbp = ((m->t0_auto || (m->out_v_backporch > vbp_max)) ? (vbp_max - pad) : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
+        int v_active = rows;
         int delay;
         int32_t hofs = 0;
 
@@ -574,7 +605,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 
     vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
-    vm_conf->h_skip = m->hfilt;         // ADC samples (hfilt+1) per stored sample
+    vm_conf->h_skip = (m->hfilt == 2) ? 3 : m->hfilt;    // ADC samples per stored sample - 1 (hfilt 2: 4)
     vm_conf->x_size = out_active;
     vm_conf->y_size = ds_v_active;
     vm_conf->x_offset = 0;
@@ -593,8 +624,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     if (m->ilace) {
         vm_conf->ds_field_cfg = (0 | (1<<2)) | ((m->fB_st | (m->fB_n<<2)) << 4);
     } else if (vm_conf->ds_vblend) {
-        // average the whole group
-        vm_conf->ds_field_cfg = m->vdec | ((m->vdec+1)<<2);
+        // average the whole group (n = 4 is coded as 0)
+        vm_conf->ds_field_cfg = m->vdec | (((m->vdec+1) & 3)<<2);
     } else {
         // pick the middle line of the group (720p: line 1 of 3, 480p: line 0 of 2)
         vm_conf->ds_field_cfg = (m->vdec/2) | (1<<2);
@@ -607,8 +638,9 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->framesync_line = ds_framesync_line;
     vm_conf->framelock = 1;
     vm_conf->si_pclk_mult = 1;
-    vm_conf->ds_lb_stride = (m->lb_layout == 3) ? (smp_active+1)/2 : 0;
-    vm_conf->ds_lb_slots = (m->lb_layout == 3) ? (((8192/vm_conf->ds_lb_stride) > 31) ? 31 : (8192/vm_conf->ds_lb_stride)) : 0;
+    vm_conf->ds_lb_stride = (m->lb_layout == 3) ? DS_LB_STRIDE(m, smp_active) : 0;
+    vm_conf->ds_lb_slots = (m->lb_layout == 3) ? DS_LB_SLOTS(vm_conf->ds_lb_stride) : 0;
+    vm_conf->ds_lb_rgb = (m->lb_layout == 3) && m->rgb444;
     vm_conf->ds_hofs = ds_hofs;
     vm_conf->ds_pll_n = m->pll_n;
     vm_conf->ds_pll_m = m->pll_m;

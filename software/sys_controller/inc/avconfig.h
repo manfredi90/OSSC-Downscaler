@@ -47,8 +47,8 @@
 #define DS_HPOS_MAX         (SIGNED_NUMVAL_ZERO+40)
 #define DS_VPOS_MIN         (SIGNED_NUMVAL_ZERO-12)
 #define DS_VPOS_MAX         (SIGNED_NUMVAL_ZERO+12)
-#define DS_WIDTH_MIN        (SIGNED_NUMVAL_ZERO-18)
-#define DS_WIDTH_MAX        (SIGNED_NUMVAL_ZERO+6)
+#define DS_WIDTH_MIN        (SIGNED_NUMVAL_ZERO-22)
+#define DS_WIDTH_MAX        (SIGNED_NUMVAL_ZERO+7)
 
 #define SL_MODE_MAX         2
 #define SL_TYPE_MAX         2
@@ -168,8 +168,8 @@ typedef struct {
 
     /* Downscaler settings */
     alt_u8 ds_csync;        // ds_csync_t: CSync on HSYNC (Off/XOR/AND)
-    alt_u8 ds_phase;        // TVP7002 sampling phase used in downscaler modes
-    alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3
+    alt_u8 ds_phase;        // TVP7002 sampling phase used in downscaler modes (720p input)
+    alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3, 2 = wide (180 lines, letterboxed)
     alt_u8 ds_hfilt_off;    // 0 = horizontal 2:1 filter on (2x oversampling)
     alt_u8 ds_vblend_off;   // 0 = line blending on
     alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
@@ -179,9 +179,10 @@ typedef struct {
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
     alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (separate output clock)
-    alt_u8 ds_width;        // full resolution: active width = 80% + (ds_width - SIGNED_NUMVAL_ZERO) % of the line (0 = unset)
+    alt_u8 ds_width;        // full resolution: width = 100% + (ds_width - SIGNED_NUMVAL_ZERO) %, 100% = 80% of the line (0 = unset)
     alt_u8 ds_fixlines;     // full resolution 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines
-    alt_u8 ds_reserved[2];  // room for future options without changing the layout
+    alt_u8 ds_phase_sd;     // sampling phase for 480p / VGA input
+    alt_u8 ds_reserved[1];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

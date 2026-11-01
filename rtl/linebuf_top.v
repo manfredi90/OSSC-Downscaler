@@ -44,19 +44,22 @@ module linebuf_top (
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
     // Horizontal box filter for oversampled input: 0 = off, 1 = average of 2
-    // ADC samples (h_skip=1)
+    // ADC samples (h_skip=1), 2 = average of 4 (h_skip=3)
     input [1:0] ds_hfilt,
     // Vertical line selection. Input lines are grouped by (ds_vdec+1) starting
     // at line ds_vstart; in each group the line at position st (0..ds_vdec) is
-    // written, as the average of the n lines ending at st (n = 1: plain pick).
+    // written, as the average of the n lines ending at st (n = 1: plain pick,
+    // n = 0 means 4).
     // ds_field_cfg = {fieldB_n[1:0], fieldB_st[1:0], fieldA_n[1:0], fieldA_st[1:0]}
     // Field B settings apply to every other input frame in interlaced output.
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
-    // layout 3 (YCbCr 4:2:2): words per line, number of lines, read base
+    // layout 3 (YCbCr 4:2:2, or RGB one pixel per word with lb_rgb): words
+    // per line, number of lines, read base
     input [9:0] lb_stride,
-    input [4:0] lb_slots,
+    input [5:0] lb_slots,
+    input lb_rgb,
     input [12:0] lb_rd_base,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
@@ -268,7 +271,8 @@ reg linebuf_wren;
 // word in YCbCr 4:2:2 {Y0, Y1, Cb, Cr} with a runtime line stride (lb_stride
 // words per line, lb_slots lines). Deeper layouts absorb the read/write drift
 // of a non-integer output line period (e.g. 750 input lines -> 262).
-wire lb422 = (lb_layout == 2'h3);
+wire lbs = (lb_layout == 2'h3);     // runtime stride layout
+wire lb422 = lbs & ~lb_rgb;
 reg [12:0] linebuf_rdaddr;
 reg wr_x_ok;
 always @(*) begin
@@ -282,7 +286,7 @@ always @(*) begin
             wr_x_ok = (xpos_i[10:9] == 2'b00);
         end
         2'h3: begin
-            linebuf_rdaddr = lb_rd_base + {3'h0, xpos_lb[10:1]};
+            linebuf_rdaddr = lb_rd_base + (lb_rgb ? {2'h0, xpos_lb} : {3'h0, xpos_lb[10:1]});
             wr_x_ok = 1'b1;
         end
         default: begin
@@ -365,28 +369,33 @@ always @(posedge PCLK_CAP_i)
 
 wire fld_b = ds_ilace & in_field_sync[1];
 wire [1:0] st_gpos = fld_b ? ds_field_cfg[5:4] : ds_field_cfg[1:0];
-wire [1:0] n_blend = fld_b ? ds_field_cfg[7:6] : ds_field_cfg[3:2];    // 1..3
-wire [1:0] first_gpos = st_gpos - n_blend + 2'h1;
-wire blend_en = ds_mode & (n_blend > 2'h1);
+wire [1:0] n_field = fld_b ? ds_field_cfg[7:6] : ds_field_cfg[3:2];
+wire [2:0] n_blend = (n_field == 2'h0) ? 3'h4 : {1'b0, n_field};      // 1..4
+wire [1:0] first_gpos = st_gpos - n_blend[1:0] + 2'h1;
+wire blend_en = ds_mode & (n_blend > 3'h1);
 
 reg [1:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
+reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9 bits)
 
 wire [10:0] grp_start = {5'h0, ds_vstart};
 wire [10:0] first_store = grp_start + {9'h0, st_gpos};
 wire [1:0] next_gpos = (ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 2'h1);
-wire [5:0] lb_num = lb422 ? {1'b0, lb_slots} : NUM_LINE_BUFFERS;
+wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
 
 // stages A/B: horizontal filter
-reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b;
+reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b, R_c, G_c, B_c, R_d, G_d, B_d;
 reg [10:0] x_a, x_b;
 reg v_a, v_b;
 reg [7:0] Rr_b, Gr_b, Br_b;
-reg [8:0] s2R_b, s2G_b, s2B_b;
-wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : Rr_b;
-wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : Gr_b;
-wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : Br_b;
+reg [8:0] s2R_b, s2G_b, s2B_b, s2R_cd, s2G_cd, s2B_cd;
+wire [9:0] s4R = {1'b0, s2R_b} + {1'b0, s2R_cd};
+wire [9:0] s4G = {1'b0, s2G_b} + {1'b0, s2G_cd};
+wire [9:0] s4B = {1'b0, s2B_b} + {1'b0, s2B_cd};
+wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? s4R[9:2] : Rr_b);
+wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? s4G[9:2] : Gr_b);
+wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? s4B[9:2] : Br_b);
 
 // stage 1 registers
 reg [7:0] R_1, G_1, B_1;
@@ -400,6 +409,8 @@ always @(posedge PCLK_CAP_i) begin
     // stage A
     {R_a, G_a, B_a} <= {R_i, G_i, B_i};
     {R_b, G_b, B_b} <= {R_a, G_a, B_a};
+    {R_c, G_c, B_c} <= {R_b, G_b, B_b};
+    {R_d, G_d, B_d} <= {R_c, G_c, B_c};
     x_a <= xpos_i;
     v_a <= DE_i & datavalid_i & wr_x_ok;
 
@@ -407,6 +418,9 @@ always @(posedge PCLK_CAP_i) begin
     s2R_b <= {1'b0, R_a} + {1'b0, R_b};
     s2G_b <= {1'b0, G_a} + {1'b0, G_b};
     s2B_b <= {1'b0, B_a} + {1'b0, B_b};
+    s2R_cd <= {1'b0, R_c} + {1'b0, R_d};
+    s2G_cd <= {1'b0, G_c} + {1'b0, G_d};
+    s2B_cd <= {1'b0, B_c} + {1'b0, B_d};
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
     x_b <= x_a;
     v_b <= v_a;
@@ -417,6 +431,7 @@ always @(posedge PCLK_CAP_i) begin
         ds_store <= 1'b1;
         ds_first <= 1'b1;
         ds_inblend <= 1'b0;
+        ds_halve <= 1'b0;
         if (ypos_i == 0) begin
             ypos_wraddr <= 0;
         end else if (ypos_i != ypos_prev) begin
@@ -444,6 +459,7 @@ always @(posedge PCLK_CAP_i) begin
         end
 
         ds_first <= (next_gpos == first_gpos);
+        ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 2'h2);
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
     end
     ypos_prev <= ypos_i;
@@ -499,7 +515,7 @@ always @(posedge PCLK_CAP_i) begin
     end else begin
         u0 <= {R_1, G_1, B_1, 8'h0};
         ua0 <= x_1;
-        uv0 <= v_1;
+        uv0 <= v_1 & (~lbs | (x_1 < {1'b0, lb_stride}));
     end
 
     // U0 -> U1 (blend RAM read)
@@ -515,8 +531,15 @@ wire [9:0] s1 = {1'b0, acc_q[26:18]} + {2'b0, u1[23:16]};
 wire [9:0] s2 = {1'b0, acc_q[17:9]}  + {2'b0, u1[15:8]};
 wire [9:0] s3 = {1'b0, acc_q[8:0]}   + {2'b0, u1[7:0]};
 
+// 4-line blend at the written line: 2 x (sum of 3 lines / 2) + this line
+wire [10:0] t0 = {1'b0, acc_q[35:27], 1'b0} + {3'b0, u1[31:24]};
+wire [10:0] t1 = {1'b0, acc_q[26:18], 1'b0} + {3'b0, u1[23:16]};
+wire [10:0] t2 = {1'b0, acc_q[17:9], 1'b0}  + {3'b0, u1[15:8]};
+wire [10:0] t3 = {1'b0, acc_q[8:0], 1'b0}   + {3'b0, u1[7:0]};
+
 // U2 registers
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
+reg [7:0] q0_2, q1_2, q2_2, q3_2;
 reg [31:0] u2;
 reg [10:0] ua2;
 reg uv2, blended_2;
@@ -524,24 +547,27 @@ reg uv2, blended_2;
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
     if (uv1 & ds_inblend & ~ds_store & (ua1 < 11'd768))
-        acc_mem[ua1[9:0]] <= ds_first ? {1'b0, u1[31:24], 1'b0, u1[23:16], 1'b0, u1[15:8], 1'b0, u1[7:0]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]};
+        acc_mem[ua1[9:0]] <= ds_first ? {1'b0, u1[31:24], 1'b0, u1[23:16], 1'b0, u1[15:8], 1'b0, u1[7:0]} :
+                             (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
+    {q0_2, q1_2, q2_2, q3_2} <= {t0[9:2], t1[9:2], t2[9:2], t3[9:2]};
     u2 <= u1;
     ua2 <= ua1;
     uv2 <= uv1 & ds_store;
     blended_2 <= ds_inblend & ~ds_first;
 end
 
-// U2: average of the blend window (2 lines: >>1, 3 lines: *171>>9 ~ /3)
+// U2: average of the blend window (2 lines: >>1, 3 lines: *171>>9 ~ /3,
+// 4 lines: see t0..t3)
 wire [17:0] d0 = s0_2 * 8'd171;
 wire [17:0] d1 = s1_2 * 8'd171;
 wire [17:0] d2 = s2_2 * 8'd171;
 wire [17:0] d3 = s3_2 * 8'd171;
-wire [7:0] b0 = (n_blend == 2'h2) ? s0_2[8:1] : d0[16:9];
-wire [7:0] b1 = (n_blend == 2'h2) ? s1_2[8:1] : d1[16:9];
-wire [7:0] b2 = (n_blend == 2'h2) ? s2_2[8:1] : d2[16:9];
-wire [7:0] b3 = (n_blend == 2'h2) ? s3_2[8:1] : d3[16:9];
+wire [7:0] b0 = (n_blend == 3'h2) ? s0_2[8:1] : ((n_blend == 3'h4) ? q0_2 : d0[16:9]);
+wire [7:0] b1 = (n_blend == 3'h2) ? s1_2[8:1] : ((n_blend == 3'h4) ? q1_2 : d1[16:9]);
+wire [7:0] b2 = (n_blend == 3'h2) ? s2_2[8:1] : ((n_blend == 3'h4) ? q2_2 : d2[16:9]);
+wire [7:0] b3 = (n_blend == 3'h2) ? s3_2[8:1] : ((n_blend == 3'h4) ? q3_2 : d3[16:9]);
 wire [31:0] u2_out = blended_2 ? {b0, b1, b2, b3} : u2;
 
 always @(posedge PCLK_CAP_i) begin
