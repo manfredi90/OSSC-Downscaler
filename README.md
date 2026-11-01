@@ -11,20 +11,26 @@ It runs from the OSSC's secondary firmware slot ("Launch 2nd FW") and never
 touches the official firmware: power cycling the OSSC always boots the
 official firmware again.
 
-> **Unofficial and experimental.** Not affiliated with or supported by the
-> OSSC developers. Use at your own risk.
+
+> **Unofficial, experimental and AI.** This project was made with the help of AI. The code was written together with Claude. It's an unofficial fork of the original OSSC firmware.
+> Use at your own risk. I am not responsible for any damage to the OSSC or the monitor
+
+
+Thanks
+------
+
+This project was inspired in functionality by e8root's VoidScaler firmware and was only possible because the OSSC project is an incredible project and has confirmed its versatility over the years. Thanks to Markus Hiienkari, all the credit goes to him.
 
 
 Safety
 ------
 
 * **15kHz output only.** Three independent layers keep the output in range:
-  1. every output mode is computed for 15.6–15.9kHz (240p) or 15.7kHz (480i),
-     and the firmware refuses any mode outside 14.8–16.0kHz;
+  1. every output mode is computed for 15.6–15.9kHz (240p) or 15.7kHz (480i)
   2. anything the firmware cannot convert (no sync, unsupported input,
      out-of-range result) shows an internal 15.73kHz 240p test pattern;
   3. a hardware watchdog in the FPGA, independent of the CPU, blanks video and
-     all syncs if the output line rate exceeds ~16.4kHz for 16 lines.
+     all syncs if the output line rate exceeds the threshold.
 * **The official firmware is never modified.** The image only fits the
   secondary slot (flash 0x80000–0xEFFFF). This firmware's settings live in a
   single sector of its own (0xF0000) and it never reads or writes the official
@@ -49,7 +55,7 @@ Supported inputs and outputs
 |---------------------|--------|-------|
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | |
-| 640x480p            | 240p / 480i | stored in full RGB |
+| 640x480p            | 240p / 480i | |
 
 * 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines.
 * Every source pixel is sampled ("full resolution" sampling) and the output
@@ -57,7 +63,6 @@ Supported inputs and outputs
   scrolling stays smooth.
 * Native 15kHz sources are passed through unchanged; any other input shows the
   test pattern with "Unsupported".
-* 1080p input is not supported yet.
 
 
 Installation
@@ -69,6 +74,7 @@ Installation
    is written to the secondary slot only.
 3. Start it with **Launch 2nd FW**. The LCD shows `vX.Y 2nd FW 15kHz` and the
    OSSC outputs the 15kHz test pattern until a supported input is found.
+4. Press button 3 on the remote control (RGBHV) to switch to the correct input   
 
 To return to the official firmware, power cycle the OSSC.
 
@@ -78,8 +84,8 @@ Downscaler menu
 
 | Item | Values | |
 |------|--------|---|
-| Output mode | 240p, 480i | 480i: one field per input frame |
-| CSync on HSYNC | Off (H+V), XOR, AND, Standard | composite sync type; Standard has equalizing pulses and serrated vsync. Some monitors (e.g. PVMs) prefer Off (separate H+V) |
+| Output mode | 240p, 480i | |
+| CSync on HSYNC | Off (H+V), XOR, AND, Standard | composite sync type; Standard has equalizing pulses and serrated vsync. |
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
 | 720p format | Full 16:9, Center 4:3, Wide (180p) | |
 | Line blending | On, Off | average of the input lines that make one output line |
@@ -117,5 +123,5 @@ Credits and license
 
 * Based on the [Open Source Scan Converter](https://github.com/marqs85/ossc)
   by Markus Hiienkari and contributors (see [CREDITS](CREDITS)).
-* Inspired by VoidScaler, a closed-source OSSC downscaler firmware.
+* Inspired by e8root's VoidScaler, a closed-source OSSC downscaler firmware.
 * License: GPLv3, same as the OSSC project (see [LICENSE](LICENSE)).
