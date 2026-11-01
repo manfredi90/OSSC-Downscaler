@@ -93,6 +93,13 @@ Settings are saved with **Settings opt. → Save settings** (stored in this
 firmware's own sector, independent of the official profiles).
 
 
+Known issues and next steps
+---------------------------
+
+* **720p Wide (180p) shimmers** on moving pictures; to be fixed.
+* **1080p input** is not supported yet; planned.
+
+
 Building
 --------
 
