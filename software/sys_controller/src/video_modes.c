@@ -159,22 +159,21 @@ typedef struct {
     uint16_t out_v_total;
     uint8_t vdec;               // stored line = every (vdec+1)th input line
     uint8_t x_rpt;              // each sample lasts (x_rpt+1) output clocks
-    uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512
+    uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512, 3 = runtime stride (full resolution)
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
     uint8_t v_start;            // first line of the first group (before "Line phase")
     uint16_t in_crop;           // source pixels cropped on each side
-    uint8_t ar43;               // 720p "Center 4:3" variant
-    uint8_t hfilt;              // ADC samples (hfilt+1) per stored sample, averaged
+    uint8_t ar43;               // 720p format: 0 = 16:9, 1 = center 4:3, 2 = wide
+    uint8_t hfilt;              // ADC samples averaged per stored sample: 0 = 1, 1 = 2, 2 = 4
     uint8_t ilace;              // 480i output: one field per input frame
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
-    // Native sampling (hfilt = 3): one ADC sample per source pixel, 2.5:1
-    // area average to 512 stored pixels, output on a separate clock from the
-    // FPGA PLL: pclk_out = pclk_in * pll_m / (pll_n * pll_c), an exact ratio
-    // so that the output stays frame locked.
+    // Output on a separate clock from the FPGA PLL: pclk_out = pclk_in *
+    // pll_m / (pll_n * pll_c), an exact ratio so that the output stays frame
+    // locked (computed by ds_pll_solve() for the full resolution rows).
     uint16_t pll_n, pll_m, pll_c;
-    // Full resolution (lb_layout 3, "Full" sampling): every ADC sample is a
-    // stored pixel (YCbCr 4:2:2), output 2 clocks per pixel on the PLL clock;
+    // Full resolution (lb_layout 3): every ADC sample (or group of hfilt
+    // samples) is a stored pixel, shown for x_rpt+1 clocks on the PLL clock;
     // the line buffer timing is computed (t0_auto) instead of out_v_backporch.
     uint8_t t0_auto;
     // full resolution: store RGB, one pixel per word, instead of YCbCr 4:2:2

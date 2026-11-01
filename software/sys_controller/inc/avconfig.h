@@ -168,9 +168,9 @@ typedef struct {
 
     /* Downscaler settings */
     alt_u8 ds_csync;        // ds_csync_t: CSync on HSYNC (Off/XOR/AND)
-    alt_u8 ds_phase;        // TVP7002 sampling phase used in downscaler modes (720p input)
+    alt_u8 ds_unused2;      // was: sampling phase (v0.17; now fixed)
     alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3, 2 = wide (180 lines, letterboxed)
-    alt_u8 ds_hfilt_off;    // 0 = horizontal 2:1 filter on (2x oversampling)
+    alt_u8 ds_hfilt_off;    // Standard sampling only (not in the menu): 0 = horizontal 2:1 filter on
     alt_u8 ds_vblend_off;   // 0 = line blending on
     alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
@@ -178,10 +178,10 @@ typedef struct {
     alt_u8 ds_unused1;      // was: 720p>480i clock (v0.10 test)
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
-    alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (separate output clock)
+    alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (fixed to 1, not in the menu)
     alt_u8 ds_width;        // full resolution: width = 100% + (ds_width - SIGNED_NUMVAL_ZERO) %, 100% = 80% of the line (0 = unset)
-    alt_u8 ds_fixlines;     // full resolution 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines
-    alt_u8 ds_phase_sd;     // sampling phase for 480p / VGA input
+    alt_u8 ds_fixlines;     // 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines (fixed to 0, not in the menu)
+    alt_u8 ds_unused3;      // was: 480p / VGA sampling phase (v0.17)
     alt_u8 ds_reserved[1];  // room for future options without changing the layout
 } __attribute__((packed)) avconfig_t;
 

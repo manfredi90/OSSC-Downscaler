@@ -527,15 +527,12 @@ status_t get_status(tvp_sync_input_t syncinput)
 
     {
         int ds_csync_changed = (tc.ds_csync != cm.cc.ds_csync);
-        int ds_phase_changed = 0;     // fixed phase in downscaler modes
 
         cm.cc = tc;
         update_cur_vm = 0;
 
         if (ds_csync_changed)
             update_sc_config();
-        if (ds_phase_changed && vm_conf.ds_vdec && !ds_safe_screen)
-            set_sampler_phase(ds_cur_phase(&cm.cc), 1);
     }
 
     return status;
@@ -1093,21 +1090,10 @@ int init_hw()
 // must be equal and stable). Repeat to refresh.
 extern char func_ret_status[];
 // Downscaler sampling phase: fixed (adjusting it made no visible difference
-// in testing, so the v0.17 menu settings were removed)
+// in testing)
 #define DS_SAMPLER_PHASE 0x10
 uint8_t ds_cur_phase(avconfig_t *c) {
     return DS_SAMPLER_PHASE;
-}
-
-// Detected input: preset name, measured lines per frame and hsync width (27MHz
-// clocks; 480p vs 640x480 is told apart by hsync width > 82)
-int ds_input_info() {
-    if (cm.id < 0) {
-        strlcpy(func_ret_status, "No mode", LCD_ROW_LEN+1);
-        return 1;
-    }
-    sniprintf(func_ret_status, LCD_ROW_LEN+1, "%.7s %lu h%u", video_modes_plm[cm.id].name, (unsigned long)cm.totlines, (unsigned)cm.hsync_width);
-    return 1;
 }
 
 int ds_diagnostics() {

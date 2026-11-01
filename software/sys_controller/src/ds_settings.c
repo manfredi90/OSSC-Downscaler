@@ -78,9 +78,12 @@ int ds_settings_load() {
         // the line relative to 80% (now in % of the standard width)
         int d = (int)tc.ds_width - SIGNED_NUMVAL_ZERO;
         d = (d >= 0) ? (d*5 + 2)/4 : -((-d*5 + 2)/4);
-        tc.ds_phase_sd = tc.ds_phase;
         tc.ds_width = SIGNED_NUMVAL_ZERO + d;
     }
+    // options no longer in the menu (v1.0): full resolution sampling,
+    // 260-264 lines, no phase hotkey (fixed sampling phase)
+    tc.ds_native = 1;
+    tc.ds_fixlines = 0;
     if (tc.ds_width < DS_WIDTH_MIN)
         tc.ds_width = DS_WIDTH_MIN;
     if (tc.ds_width > DS_WIDTH_MAX)
@@ -90,6 +93,7 @@ int ds_settings_load() {
     if (tc.ds_720p_ar > 2)
         tc.ds_720p_ar = 0;
     memcpy(&ts, &blob.ts, sizeof(settings_t));
+    ts.phase_hotkey_enable = 0;
     memcpy(rc_keymap, blob.rc_keymap, sizeof(blob.rc_keymap));
     printf("DS settings loaded\n");
 
