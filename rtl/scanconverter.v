@@ -58,9 +58,6 @@ module scanconverter (
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
-    input ds_i2p_flt,           // 480i -> 240p: 2-line filter per field (see linebuf_top)
-    input [4:0] ds_i2p_wtop,
-    input [4:0] ds_i2p_wbot,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
     input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
@@ -400,10 +397,6 @@ linebuf_top #(
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
-    .i2p_flt(ds_i2p_flt),
-    .i2p_wtop(ds_i2p_wtop),
-    .i2p_wbot(ds_i2p_wbot),
-    .fid_i(FID_i),
     .in_field(in_field),
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),

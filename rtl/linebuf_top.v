@@ -55,14 +55,7 @@ module linebuf_top (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
-    // 480i -> 240p filter (stock line path, ds_vdec = 0): each stored line is
-    // w*previous + (16-w)*current line of the same field, w = i2p_wtop in the
-    // top field (fid_i = 1), i2p_wbot in the bottom field, in 1/16. The blend
-    // RAM holds the previous line (up to 768 pixels).
-    input i2p_flt,
-    input [4:0] i2p_wtop,
-    input [4:0] i2p_wbot,
-    input fid_i,
+
     // layout 3 (YCbCr 4:2:2, or RGB one pixel per word with lb_rgb): words
     // per line, number of lines, read base
     input [9:0] lb_stride,
@@ -386,7 +379,6 @@ reg [1:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
 reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9 bits)
-reg i2p_first;              // per line: first line of the field (no previous line)
 
 wire [10:0] grp_start = {5'h0, ds_vstart};
 wire [10:0] first_store = grp_start + {9'h0, st_gpos};
@@ -441,8 +433,6 @@ always @(posedge PCLK_CAP_i) begin
         ds_first <= 1'b1;
         ds_inblend <= 1'b0;
         ds_halve <= 1'b0;
-        if (ypos_i != ypos_prev)
-            i2p_first <= (ypos_i == 0);
         if (ypos_i == 0) begin
             ypos_wraddr <= 0;
         end else if (ypos_i != ypos_prev) begin
@@ -572,8 +562,6 @@ wire [10:0] t2 = {1'b0, acc_q2[17:9], 1'b0}  + {3'b0, u1b[15:8]};
 wire [10:0] t3 = {1'b0, acc_q2[8:0], 1'b0}   + {3'b0, u1b[7:0]};
 
 // U2 registers
-reg [23:0] f_prev2;
-reg [4:0] f_wp2;
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
 reg [7:0] q0_2, q1_2, q2_2, q3_2;
 reg [31:0] u2;
@@ -582,17 +570,13 @@ reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
-    if (uv1b & ((ds_inblend & ~ds_store) | i2p_flt) & (ua1b < 11'd768))
-        acc_mem[ua1b[9:0]] <= (ds_first | i2p_flt) ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
+    if (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768))
+        acc_mem[ua1b[9:0]] <= ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
                              (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
     {q0_2, q1_2, q2_2, q3_2} <= {t0[9:2], t1[9:2], t2[9:2], t3[9:2]};
     u2 <= u1b;
-    // 480i -> 240p filter: previous line (the current one on the first line
-    // of a field or beyond the blend RAM) and weights
-    f_prev2 <= (i2p_first | (ua1b >= 11'd768)) ? u1b[31:8] : {acc_q2[34:27], acc_q2[25:18], acc_q2[16:9]};
-    f_wp2 <= fid_i ? i2p_wtop : i2p_wbot;
     ua2 <= ua1b;
     uv2 <= uv1b & ds_store;
     blended_2 <= ds_inblend & ~ds_first;
@@ -611,20 +595,7 @@ reg [31:0] u3;
 reg [10:0] ua3;
 reg uv3, blended_3;
 
-// 480i -> 240p filter products (RGB, stock line path)
-reg [12:0] fp0_3, fp1_3, fp2_3, fc0_3, fc1_3, fc2_3;
-wire [4:0] f_wc2 = 5'd16 - f_wp2;
-wire [13:0] fs0 = {1'b0, fp0_3} + {1'b0, fc0_3};
-wire [13:0] fs1 = {1'b0, fp1_3} + {1'b0, fc1_3};
-wire [13:0] fs2 = {1'b0, fp2_3} + {1'b0, fc2_3};
-
 always @(posedge PCLK_CAP_i) begin
-    fp0_3 <= f_prev2[23:16] * f_wp2;
-    fp1_3 <= f_prev2[15:8]  * f_wp2;
-    fp2_3 <= f_prev2[7:0]   * f_wp2;
-    fc0_3 <= u2[31:24] * f_wc2;
-    fc1_3 <= u2[23:16] * f_wc2;
-    fc2_3 <= u2[15:8]  * f_wc2;
     {h0_3, h1_3, h2_3, h3_3} <= {s0_2[8:1], s1_2[8:1], s2_2[8:1], s3_2[8:1]};
     {q0_3, q1_3, q2_3, q3_3} <= {q0_2, q1_2, q2_2, q3_2};
     {d0_3, d1_3, d2_3, d3_3} <= {d0[16:9], d1[16:9], d2[16:9], d3[16:9]};
@@ -638,7 +609,7 @@ wire [7:0] b0 = (n_blend == 3'h2) ? h0_3 : ((n_blend == 3'h4) ? q0_3 : d0_3);
 wire [7:0] b1 = (n_blend == 3'h2) ? h1_3 : ((n_blend == 3'h4) ? q1_3 : d1_3);
 wire [7:0] b2 = (n_blend == 3'h2) ? h2_3 : ((n_blend == 3'h4) ? q2_3 : d2_3);
 wire [7:0] b3 = (n_blend == 3'h2) ? h3_3 : ((n_blend == 3'h4) ? q3_3 : d3_3);
-wire [31:0] u3_out = i2p_flt ? {fs0[11:4], fs1[11:4], fs2[11:4], 8'h0} : (blended_3 ? {b0, b1, b2, b3} : u3);
+wire [31:0] u3_out = blended_3 ? {b0, b1, b2, b3} : u3;
 
 always @(posedge PCLK_CAP_i) begin
     // U3 -> line buffer write

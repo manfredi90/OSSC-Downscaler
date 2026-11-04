@@ -175,14 +175,14 @@ typedef struct {
     alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
     alt_u8 ds_i2p;          // 480i/576i input: 0 = passthrough, 1 = 240p/288p (both fields on the same lines)
-    alt_u8 ds_i2p_flt;      // 480i -> 240p filter level 0 (off) .. 4
+    alt_u8 ds_unused1;      // was: 480i -> 240p filter (v1.1.2 test)
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
     alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (fixed to 1, not in the menu)
     alt_u8 ds_width;        // full resolution: width = 100% + (ds_width - SIGNED_NUMVAL_ZERO) %, 100% = 80% of the line (0 = unset)
     alt_u8 ds_fixlines;     // 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines (fixed to 0, not in the menu)
     alt_u8 ds_unused3;      // was: 480p / VGA sampling phase (v0.17)
-    alt_u8 ds_i2p_swap;     // 480i -> 240p filter: swapped field order
+    alt_u8 ds_reserved[1];  // was: 480i -> 240p filter field order (v1.1.2 test)
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);

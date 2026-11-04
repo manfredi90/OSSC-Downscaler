@@ -104,8 +104,6 @@ static const char* const on_off_desc[] = { "On", "Off" };   // for *_off setting
 static const char* const ds_out_desc[] = { "240p", "480i" };
 static const char* const ds_480p_in_desc[] = { "Auto", "720x480", "640x480" };
 static const char* const ds_i2p_desc[] = { "Passthru", "240p" };
-static const char* const ds_i2p_flt_desc[] = { "Off", "1", "2", "3", "4" };
-static const char* const ds_i2p_swap_desc[] = { "Normal", "Swapped" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }
 static void intclks_to_time_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%u.%.2u us", (unsigned)(((1000000U*v)/(TVP_INTCLK_HZ/1000))/1000), (unsigned)((((1000000U*v)/(TVP_INTCLK_HZ/1000))%1000)/10)); }
@@ -278,8 +276,6 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
     { "480i input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p,       OPT_WRAP,   SETTING_ITEM(ds_i2p_desc) } } },
-    { "480i filter",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p_flt,   OPT_WRAP,   SETTING_ITEM(ds_i2p_flt_desc) } } },
-    { "480i fields",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p_swap,  OPT_WRAP,   SETTING_ITEM(ds_i2p_swap_desc) } } },
     { "HD format",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 3, value_disp } } },

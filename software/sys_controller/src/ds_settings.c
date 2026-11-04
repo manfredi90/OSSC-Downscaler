@@ -90,10 +90,6 @@ int ds_settings_load() {
         tc.ds_width = DS_WIDTH_MAX;
     if (tc.ds_i2p > 1)
         tc.ds_i2p = 0;
-    if (tc.ds_i2p_flt > 4)
-        tc.ds_i2p_flt = 0;
-    if (tc.ds_i2p_swap > 1)
-        tc.ds_i2p_swap = 0;
     if (tc.s480p_mode > 2)
         tc.s480p_mode = 0;
     if (tc.ds_720p_ar > 2)
