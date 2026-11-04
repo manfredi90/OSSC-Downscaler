@@ -57,7 +57,7 @@ Supported inputs and outputs
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
-| 480i / 576i         | 480i / 576i, or 240p / 288p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input") |
+| 480i                | 480i, or 240p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input"). PAL (576i) is still to be investigated |
 
 * 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines.
 * Every source pixel is sampled ("full resolution" sampling) and the output
@@ -89,7 +89,7 @@ Downscaler menu
 | Output mode | 240p, 480i | |
 | CSync on HSYNC | Off (H+V), XOR, AND, Standard | composite sync type; Standard has equalizing pulses and serrated vsync. |
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
-| 480i input | Passthru, 240p | 480i/576i sources: unchanged, or both fields shown on the same scanlines as 240p/288p (no interlacing, the picture keeps the 240p look) |
+| 480i input | Passthru, 240p | 480i sources: unchanged, or both fields shown on the same scanlines as 240p (no interlacing, the picture keeps the 240p look) |
 | 480i filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |
 | HD format | Full 16:9, Center 4:3, Wide (180p) | 720p and 1080p (Wide: 720p only, 1080p uses Full 16:9) |
 | Line blending | On, Off | average of the input lines that make one output line |
@@ -108,6 +108,8 @@ Known issues and next steps
 
 * **1080p Wide** (whole 16:9 picture letterboxed, e.g. 216p) is not available
   yet; planned.
+* **PAL** is still to be investigated: 576i -> 288p ("480i input") is not
+  tested yet, 576p input is not supported yet (planned).
 
 
 Building

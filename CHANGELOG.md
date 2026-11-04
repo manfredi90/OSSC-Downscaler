@@ -9,9 +9,9 @@ v1.1
   - Full 16:9: the 1708x960 center window (~89% of the picture), squeezed to 4:3
   - Center 4:3: the 1280x960 center window
   - best with sources scaled x4 vertically (integer scaling)
-- "480i input" menu option: 480i/576i sources can be shown as 240p/288p, with
-  both fields on the same scanlines (no interlacing). Passthrough remains the
-  default.
+- "480i input" menu option: 480i sources can be shown as 240p, with both
+  fields on the same scanlines (no interlacing). Passthrough remains the
+  default. PAL (576i -> 288p) is not tested yet.
 - "480i filter" menu option (Off, 1–4): flicker filter for 480p and 640x480
   sources with 480i output. Each field line is mixed with the lines above and
   below (weights a, 1-2a, a; level 4 = 1/4, 1/2, 1/4).
