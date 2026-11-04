@@ -1,10 +1,13 @@
 Changelog
 =========
 
-Unreleased (test builds 1.1.4, 1.1.5)
--------------------------------------
+Unreleased (test builds 1.1.4–1.1.6)
+------------------------------------
 
 ### New
+- 576p input (50Hz, 1.1.6): 288p (310–314 lines, 15.5–15.7kHz) and 576i
+  output, every source pixel sampled as 480p, optional flicker filter in
+  576i.
 - 1080p Wide (180p): the whole 16:9 picture letterboxed, 1848x1080 -> 308x180
   (6x6 pixel average; with line blending the 4 middle lines of each group of
   6), 240p and 480i output.

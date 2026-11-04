@@ -51,15 +51,18 @@ Requirements
 Supported inputs and outputs
 ----------------------------
 
-| Input (~60Hz)       | Output | Notes |
+| Input (~60Hz unless noted) | Output | Notes |
 |---------------------|--------|-------|
 | 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending) |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
+| 720x576p (50Hz)     | 288p / 576i | 312 lines per field (310–314, 15.5–15.7kHz) or 625 lines; optional flicker filter in 576i |
 | 480i                | 480i, or 240p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input"). PAL (576i) is still to be investigated |
 
-* 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines.
+* 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines. 50Hz sources:
+  288p (310–314 lines) and 576i (625 lines); the menu items named 240p / 480i
+  give 288p / 576i with them.
 * Every source pixel is sampled ("full resolution" sampling) and the output
   clock is generated at an exact ratio of the input clock, so horizontal
   scrolling stays smooth.
@@ -106,9 +109,9 @@ firmware's own sector, independent of the official profiles).
 Known issues and next steps
 ---------------------------
 
-* **PAL** is still to be investigated: 576i -> 288p ("480i input") shows
-  strong flicker on hardware (480i -> 240p with the same source is stable),
-  576p input is not supported yet (planned).
+* **PAL**: 576i -> 288p ("480i input") shows strong flicker on hardware
+  (480i -> 240p with the same source is stable). 576p input is new and not
+  tested on hardware yet.
 
 
 Building

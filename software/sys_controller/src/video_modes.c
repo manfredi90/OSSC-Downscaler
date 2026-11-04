@@ -181,6 +181,8 @@ typedef struct {
     uint8_t rgb444;
     // 720p "Wide": 180 active lines centered in the 240 line field
     uint8_t wide;
+    // 50Hz source, 288p (310-314 lines) / 576i (625 lines) output
+    uint8_t pal;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -256,6 +258,10 @@ static const ds_mode_t ds_modes[] = {
     // 1080p center 4:3: the 1280x960 window, 640 stored pixels, 3 clocks per pixel
     { HDMI_1080p60,    1125, 1100, 2400, 262, 3, 2, 3,  0, 60, 320, 1, 1, 0, 0, 0, "1080 4:3p",  0, 0, 0, 1 },
     { HDMI_1080p60,    1125, 1100, 2400, 525, 3, 2, 3,  0, 60, 320, 1, 1, 1, 3, 2, "1080 4:3i",  0, 0, 0, 1 },
+    // 576p50: 720 pixels (864/line, 27MHz), 3 clocks per pixel, RGB 4:4:4 as
+    // 480p; 288p (310-314 lines, 15.5-15.7kHz) or 576i (625 lines)
+    { HDMI_576p50,      625,  864, 2700, 312, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "576p>288pF", 0, 0, 0, 1, 1, 0, 1 },
+    { HDMI_576p50,      625,  864, 2700, 625, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "576p>576iF", 0, 0, 0, 1, 1, 0, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -277,7 +283,12 @@ static const ds_mode_t ds_modes[] = {
 // M = 262 at 3.6MHz for VGA, which showed shimmer.
 #define DS_PLL_PFD_MIN_KHZ  5000
 #define DS_PLL_M_MAX        200
-#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : DS_OUT_V_ACTIVE)
+#define DS_OUT_V_ACTIVE_PAL 288
+// active lines per output field, and stored rows (Wide: 180 of them)
+#define DS_OUT_V_FIELD_ACT(m) ((m)->pal ? DS_OUT_V_ACTIVE_PAL : DS_OUT_V_ACTIVE)
+#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : DS_OUT_V_FIELD_ACT(m))
+// output lines per frame in 480i / 576i
+#define DS_OUT_ILACE_LINES(m) ((m)->pal ? 625 : 525)
 // 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
 #define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
@@ -304,7 +315,16 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     uint8_t want[2];
     unsigned pass, npass = 0;
 
-    if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
+    uint8_t pal;
+
+    // 60Hz sources, and 50Hz for the PAL rows (576p)
+    if (vm_in->timings.interlaced)
+        return NULL;
+    if ((vm_in->timings.v_hz_x100 >= 5800) && (vm_in->timings.v_hz_x100 <= 6200))
+        pal = 0;
+    else if ((vm_in->timings.v_hz_x100 >= 4800) && (vm_in->timings.v_hz_x100 <= 5200))
+        pal = 1;
+    else
         return NULL;
     // "HD format" (720p and 1080p)
     ar = cc->ds_720p_ar;
@@ -320,14 +340,14 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         // selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
+                if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
                     (ds_modes[i].ilace == want[pass]) &&
                     ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar)))
                     return &ds_modes[i];
             }
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-            if ((ds_modes[i].vic == preset->vic) &&
+            if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].pal == pal) &&
                 ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
                 ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar))) {
@@ -411,9 +431,12 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                         uint32_t fin_khz, uint32_t hin, uint32_t vin, uint8_t ilace, uint32_t act, uint32_t target_pm,
                         uint8_t fixed_lines, uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
     ds_mode_t cand;
-    static const uint16_t lines_opt[] = {262, 264, 260, 261, 263};
+    static const uint16_t lines_ntsc[] = {262, 264, 260, 261, 263};
+    static const uint16_t lines_pal[] = {312, 314, 310, 311, 313};
+    const uint16_t *lines_opt = row->pal ? lines_pal : lines_ntsc;
+    uint32_t ilace_lines = DS_OUT_ILACE_LINES(row);
     uint32_t oh, oh_min, oh_max, li_i, best_err = 0xffffffff;
-    uint32_t n_lines = (ilace || fixed_lines) ? 1 : sizeof(lines_opt)/sizeof(lines_opt[0]);
+    uint32_t n_lines = (ilace || fixed_lines) ? 1 : sizeof(lines_ntsc)/sizeof(lines_ntsc[0]);
     int found = 0;
 
     oh_min = (act*1000 + 879)/880;      // active <= 88% of the line
@@ -423,7 +446,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 
     for (oh=oh_min; oh<=oh_max; oh++) {
         for (li_i=0; li_i<n_lines; li_i++) {
-            uint32_t fo2 = ilace ? 525 : 2*lines_opt[li_i];
+            uint32_t fo2 = ilace ? ilace_lines : 2*lines_opt[li_i];
             uint32_t hfreq = ((uint32_t)vm_in->timings.v_hz_x100*fo2)/200;     // output line rate (Hz)
             if ((hfreq < DS_HFREQ_MIN) || (hfreq > DS_HFREQ_MAX))
                 continue;
@@ -454,11 +477,11 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     // the line buffer must absorb the read/write drift of this line rate
                     memcpy(&cand, row, sizeof(ds_mode_t));
                     cand.out_h_total = oh;
-                    cand.out_v_total = ilace ? 525 : lines_opt[li_i];
+                    cand.out_v_total = ilace ? ilace_lines : lines_opt[li_i];
                     if (!ds_t0_window_ok(&cand, cc, vm_in, w, rpt))
                         break;
                     *oh_o = oh;
-                    *lines_o = ilace ? 525 : lines_opt[li_i];
+                    *lines_o = ilace ? ilace_lines : lines_opt[li_i];
                     *n_o = n;
                     *m_o = m;
                     *c_o = c;
@@ -657,8 +680,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         vm_out->timings.h_backporch = bp;
     }
     vm_out->timings.h_total_adj = 0;
-    vm_out->timings.v_total = m->out_v_total;       // 525 for 480i (per frame)
-    vm_out->timings.v_active = DS_OUT_V_ACTIVE;     // per field
+    vm_out->timings.v_total = m->out_v_total;       // 525 / 625 for 480i / 576i (per frame)
+    vm_out->timings.v_active = DS_OUT_V_FIELD_ACT(m);   // per field
     vm_out->timings.v_synclen = DS_OUT_V_SYNCLEN;
     // Vertical timing. Active video must end before the next vsync's
     // pre-equalizing pulses (3 lines): HDMI cannot carry sync changes during
@@ -672,7 +695,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         // Wide: 180 rows centered where the 240 rows would be (the extra
         // back / front porch lines are black)
         int rows = DS_OUT_V_ROWS(m);
-        int pad = (DS_OUT_V_ACTIVE - rows)/2;
+        int pad = (DS_OUT_V_FIELD_ACT(m) - rows)/2;
         int field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
         int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - rows;
         int vbp = ((m->t0_auto || (m->out_v_backporch > vbp_max)) ? (vbp_max - pad) : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
