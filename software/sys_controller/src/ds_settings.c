@@ -88,6 +88,8 @@ int ds_settings_load() {
         tc.ds_width = DS_WIDTH_MIN;
     if (tc.ds_width > DS_WIDTH_MAX)
         tc.ds_width = DS_WIDTH_MAX;
+    if (tc.ds_480i > 2)
+        tc.ds_480i = 0;
     if (tc.s480p_mode > 2)
         tc.s480p_mode = 0;
     if (tc.ds_720p_ar > 2)

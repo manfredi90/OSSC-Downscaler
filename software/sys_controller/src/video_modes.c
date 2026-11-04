@@ -181,6 +181,10 @@ typedef struct {
     uint8_t rgb444;
     // 720p "Wide": 180 active lines centered in the 240 line field
     uint8_t wide;
+    // set at runtime (Output mode "240p alt."): a 480i row shown as 240p,
+    // with the field A / B line selection alternated per input frame on the
+    // same output lines (ilace is then 0)
+    uint8_t altf;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -293,6 +297,7 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     if ((preset->vic == HDMI_1080p60) && (ar == 2))
         ar = 0;
 
+    // 480i and "240p alt." use the 480i rows
     if (cc->ds_480i)
         want[npass++] = 1;
     want[npass++] = 0;
@@ -350,13 +355,13 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 // Line written in each group (st, 0..vdec) and number of lines averaged into
 // it (n, ending at st), for field A (240p: every field) and field B (480i).
 static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n_a, int *st_b, int *n_b) {
-    if (m->ilace && (m->vdec == 3)) {
+    if ((m->ilace || m->altf) && (m->vdec == 3)) {
         // groups of 4 lines (Wide, 1080p): A = lines 0-1, B = lines 2-3
         *st_a = cc->ds_vblend_off ? 0 : 1;
         *n_a = cc->ds_vblend_off ? 1 : 2;
         *st_b = cc->ds_vblend_off ? 2 : 3;
         *n_b = *n_a;
-    } else if (m->ilace) {
+    } else if (m->ilace || m->altf) {
         *st_a = 0;
         *n_a = 1;
         *st_b = m->fB_st;
@@ -480,9 +485,9 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // the worst pixel is the first one for "written before read" and the last
     // one for "read before overwritten". 480i field B is read half a line
     // later relative to its input frame.
-    for (f=0; f<(m->ilace ? 2 : 1); f++) {
+    for (f=0; f<((m->ilace || m->altf) ? 2 : 1); f++) {
         int64_t st = f ? st_b : st_a;
-        int64_t ofs = f ? u_oline/2 : 0;
+        int64_t ofs = (f && m->ilace) ? u_oline/2 : 0;     // "240p alt.": same output lines
         for (i=0; i<2; i++) {
             int64_t r = i ? (k-1) : 0;
             int64_t l = (y0 + g*r + st + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
@@ -547,6 +552,11 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         // lines off the standard total would otherwise drift and be resynced
         // over and over (visible as stutter).
         memcpy(&me, m, sizeof(ds_mode_t));
+        // "240p alt.": the 480i line selection with 240p output timing
+        if (me.ilace && (cc->ds_480i == 2)) {
+            me.ilace = 0;
+            me.altf = 1;
+        }
         if ((vm_in->timings.v_total != m->in_v_total) && (abs((int)vm_in->timings.v_total - (int)m->in_v_total) <= 8))
             me.in_v_total = vm_in->timings.v_total;
         m = &me;
@@ -686,6 +696,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // aligned with integer-scaled content (blending a group of identical
     // lines then gives exactly the unblended picture).
     vm_conf->ds_ilace = !!m->ilace;
+    vm_conf->ds_altf = !!m->altf;
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
@@ -714,6 +725,14 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->hdmitx_pixr_ifr = 0;
 
     strncpy(vm_out->name, m->name, 11);
+    if (m->altf) {
+        // "720p>480iF" -> "720p>240aF", "1080 4:3i" -> "1080 4:3a"
+        char *p = strstr(vm_out->name, "480i");
+        if (p)
+            memcpy(p, "240a", 4);
+        else if (strlen(vm_out->name) && (vm_out->name[strlen(vm_out->name)-1] == 'i'))
+            vm_out->name[strlen(vm_out->name)-1] = 'a';
+    }
 
     if (vm_out->vic == HDMI_Unknown)
         vm_out->vic = cc->default_vic;

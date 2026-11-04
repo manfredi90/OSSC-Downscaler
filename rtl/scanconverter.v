@@ -57,6 +57,7 @@ module scanconverter (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
+    input ds_altf,              // 240p output, field A / B line selection alternated per input frame
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
     input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
@@ -395,7 +396,7 @@ linebuf_top #(
     .lb_layout(lb_layout),
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
-    .ds_ilace(ds_ilace),
+    .ds_ilace(ds_ilace | ds_altf),     // field A / B line selection
     .in_field(in_field),
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),
@@ -445,7 +446,7 @@ always @(posedge PCLK_OUT_i) begin
                              ((ds_hofs != 13'h0) & (v_cnt == V_STARTLINE) & (h_cnt >= ds_hofs-13'd128) & (h_cnt < ds_hofs+13'd128) & (~V_INTERLACED | (dst_fid == FID_START)))) &
                            (~ds_ilace | (in_field ^ ds_fswap));    // 480i: frame shown in the odd field
     if (~frame_change_prev & frame_change)
-        in_field <= ds_ilace ? ~in_field : 1'b0;
+        in_field <= (ds_ilace | ds_altf) ? ~in_field : 1'b0;
 
     // diagnostics: number of output resyncs, input frame period (low bits)
     if (frame_change_resync)
