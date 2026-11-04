@@ -464,7 +464,7 @@ status_t get_status(tvp_sync_input_t syncinput)
             (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos) ||
             (tc.ds_native != cm.cc.ds_native) || (tc.ds_width != cm.cc.ds_width) ||
             (tc.ds_fixlines != cm.cc.ds_fixlines) ||
-            (tc.ds_i2p != cm.cc.ds_i2p))
+            (tc.ds_i2p != cm.cc.ds_i2p) || (tc.ds_flicker != cm.cc.ds_flicker))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -698,7 +698,8 @@ void update_sc_config()
         uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
 
         hv_out_config.h_synclen = h_synclen & 0xff;
-        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_field_cfg << 8)) :
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_vflt << 5) | (vm_conf.ds_vflt_bofs << 6) |
+                                             (vm_conf.ds_field_cfg << 8) | ((alt_u32)(vm_conf.ds_vflt_a & 0x1f) << 16)) :
                          (vm_conf.ds_i2p << 4);
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |

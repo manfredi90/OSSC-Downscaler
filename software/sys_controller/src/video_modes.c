@@ -268,6 +268,8 @@ static const ds_mode_t ds_modes[] = {
 #define DS_PLL_PFD_MIN_KHZ  5000
 #define DS_PLL_M_MAX        200
 #define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : DS_OUT_V_ACTIVE)
+// 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
+#define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
 #define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : (((w)+1)/2))
 #define DS_LB_SLOTS(st)     (((8192/(st)) > 63) ? 63 : (8192/(st)))
@@ -350,6 +352,14 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 // Line written in each group (st, 0..vdec) and number of lines averaged into
 // it (n, ending at st), for field A (240p: every field) and field B (480i).
 static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n_a, int *st_b, int *n_b) {
+    if (DS_VFLT(m, cc)) {
+        // flicker filter: rows written at the line after their center line,
+        // field B groups one line later (see linebuf_top)
+        *st_a = 1;
+        *st_b = 2;
+        *n_a = *n_b = 1;
+        return;
+    }
     if (m->ilace && (m->vdec == 3)) {
         // groups of 4 lines (Wide, 1080p): A = lines 0-1, B = lines 2-3
         *st_a = cc->ds_vblend_off ? 0 : 1;
@@ -689,7 +699,18 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
-    {
+    if (DS_VFLT(m, cc)) {
+        // flicker filter (see linebuf_top): both fields write at group
+        // position 1, field B groups start one line later. Rows are
+        // a*L(c-1) + (16-2a)*L(c) + a*L(c+1), a = 1..4 sixteenths. The last
+        // field B row is centered on line 479 and uses line 480 (blanking):
+        // one more input line is captured.
+        vm_conf->ds_field_cfg = 1 | (1<<2) | (1<<4) | (1<<6);
+        vm_conf->ds_vflt = 1;
+        vm_conf->ds_vflt_bofs = 1;
+        vm_conf->ds_vflt_a = cc->ds_flicker;
+        vm_in->timings.v_active += 1;
+    } else {
         // n = 4 is coded as 0
         int st_a, n_a, st_b, n_b;
         ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);

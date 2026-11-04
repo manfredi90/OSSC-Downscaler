@@ -55,6 +55,18 @@ module linebuf_top (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
+    // 480p -> 480i flicker filter (RGB storage, groups of 2 lines, st = 1):
+    // each field row is a*L(c-1) + (16-2a)*L(c) + a*L(c+1) (1/16) around its
+    // center line c (group position 0), written at the next line (position
+    // 1). The two field rows that share a line overlap there: the end of one
+    // and the start of the next are handled in the same blend RAM
+    // read-modify-write. The blend RAM holds 3 x 12 bits per pixel. Field B
+    // groups start one line later (vflt_bofs) so that its rows are centered
+    // on the odd lines. The first row of a field has no line before it: its
+    // center weight is 16-a.
+    input vflt,
+    input vflt_bofs,
+    input [4:0] vflt_a,
 
     // layout 3 (YCbCr 4:2:2, or RGB one pixel per word with lb_rgb): words
     // per line, number of lines, read base
@@ -379,8 +391,10 @@ reg [1:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
 reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9 bits)
+reg vf_center, vf_first;    // per line: flicker filter center line / first one of the field
+reg [4:0] vf_w;             // per line: flicker filter weight of this line (1/16)
 
-wire [10:0] grp_start = {5'h0, ds_vstart};
+wire [10:0] grp_start = {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b};
 wire [10:0] first_store = grp_start + {9'h0, st_gpos};
 wire [1:0] next_gpos = (ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 2'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
@@ -460,6 +474,9 @@ always @(posedge PCLK_CAP_i) begin
         end
 
         ds_first <= (next_gpos == first_gpos);
+        vf_center <= (next_gpos == 2'h0);
+        vf_first <= (ypos_i == grp_start);
+        vf_w <= (next_gpos != 2'h0) ? vflt_a : ((ypos_i == grp_start) ? (5'd16 - vflt_a) : (5'd16 - {vflt_a[3:0], 1'b0}));
         ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 2'h2);
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
     end
@@ -500,6 +517,7 @@ reg ublend1;
 // pixels, 4:2:2: 768 pixel pairs)
 (* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:767];   // 3 x (256 x 36)
 reg [35:0] acc_q, acc_q2;
+reg [11:0] vc0_1b, vc1_1b, vc2_1b;     // flicker filter: this line's weighted R, G, B
 reg [31:0] u1b;
 reg [10:0] ua1b;
 reg uv1b;
@@ -542,6 +560,9 @@ always @(posedge PCLK_CAP_i) begin
     ua1 <= ua0;
     uv1 <= uv0;
     acc_q2 <= acc_q;
+    vc0_1b <= u1[31:24] * vf_w;
+    vc1_1b <= u1[23:16] * vf_w;
+    vc2_1b <= u1[15:8]  * vf_w;
     u1b <= u1;
     ua1b <= ua1;
     uv1b <= uv1;
@@ -561,7 +582,14 @@ wire [10:0] t1 = {1'b0, acc_q2[26:18], 1'b0} + {3'b0, u1b[23:16]};
 wire [10:0] t2 = {1'b0, acc_q2[17:9], 1'b0}  + {3'b0, u1b[15:8]};
 wire [10:0] t3 = {1'b0, acc_q2[8:0], 1'b0}   + {3'b0, u1b[7:0]};
 
+// flicker filter: sums (center line: start or continue; other line: end the
+// row, and start the next one with the same weighted line)
+wire [12:0] vs0 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[35:24]}) + {1'b0, vc0_1b};
+wire [12:0] vs1 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[23:12]}) + {1'b0, vc1_1b};
+wire [12:0] vs2 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[11:0]})  + {1'b0, vc2_1b};
+
 // U2 registers
+reg [23:0] vout_2;
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
 reg [7:0] q0_2, q1_2, q2_2, q3_2;
 reg [31:0] u2;
@@ -570,11 +598,15 @@ reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
-    if (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768))
+    if (vflt) begin
+        if (uv1b & (ua1b < 11'd768))
+            acc_mem[ua1b[9:0]] <= vf_center ? {vs0[11:0], vs1[11:0], vs2[11:0]} : {vc0_1b, vc1_1b, vc2_1b};
+    end else if (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768))
         acc_mem[ua1b[9:0]] <= ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
                              (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
+    vout_2 <= {vs0[11:4], vs1[11:4], vs2[11:4]};
     {q0_2, q1_2, q2_2, q3_2} <= {t0[9:2], t1[9:2], t2[9:2], t3[9:2]};
     u2 <= u1b;
     ua2 <= ua1b;
@@ -592,6 +624,7 @@ wire [17:0] d3 = s3_2 * 8'd171;
 // buffer write
 reg [7:0] h0_3, h1_3, h2_3, h3_3, q0_3, q1_3, q2_3, q3_3, d0_3, d1_3, d2_3, d3_3;
 reg [31:0] u3;
+reg [23:0] vout_3;
 reg [10:0] ua3;
 reg uv3, blended_3;
 
@@ -600,6 +633,7 @@ always @(posedge PCLK_CAP_i) begin
     {q0_3, q1_3, q2_3, q3_3} <= {q0_2, q1_2, q2_2, q3_2};
     {d0_3, d1_3, d2_3, d3_3} <= {d0[16:9], d1[16:9], d2[16:9], d3[16:9]};
     u3 <= u2;
+    vout_3 <= vout_2;
     ua3 <= ua2;
     uv3 <= uv2;
     blended_3 <= blended_2;
@@ -609,7 +643,7 @@ wire [7:0] b0 = (n_blend == 3'h2) ? h0_3 : ((n_blend == 3'h4) ? q0_3 : d0_3);
 wire [7:0] b1 = (n_blend == 3'h2) ? h1_3 : ((n_blend == 3'h4) ? q1_3 : d1_3);
 wire [7:0] b2 = (n_blend == 3'h2) ? h2_3 : ((n_blend == 3'h4) ? q2_3 : d2_3);
 wire [7:0] b3 = (n_blend == 3'h2) ? h3_3 : ((n_blend == 3'h4) ? q3_3 : d3_3);
-wire [31:0] u3_out = blended_3 ? {b0, b1, b2, b3} : u3;
+wire [31:0] u3_out = vflt ? {vout_3, 8'h0} : (blended_3 ? {b0, b1, b2, b3} : u3);
 
 always @(posedge PCLK_CAP_i) begin
     // U3 -> line buffer write
