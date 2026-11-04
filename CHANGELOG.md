@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Unreleased (test build 1.1.4)
------------------------------
+Unreleased (test builds 1.1.4, 1.1.5)
+-------------------------------------
 
 ### New
 - 1080p Wide (180p): the whole 16:9 picture letterboxed, 1848x1080 -> 308x180
@@ -10,9 +10,9 @@ Unreleased (test build 1.1.4)
   6), 240p and 480i output.
 
 ### Internal
-- Ibex instruction cache disabled: the code runs from flash with the
-  prefetch buffer only. FPGA logic use 94% -> 86% (with the 1080p Wide
-  filter included), M9K blocks 56 -> 55 of 56.
+- 1.1.4 only: Ibex instruction cache disabled as a test (FPGA logic 94% ->
+  86%), but some menu functions took seconds; enabled again in 1.1.5.
+
 
 v1.1
 ----
