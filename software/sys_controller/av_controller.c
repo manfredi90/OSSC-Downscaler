@@ -697,7 +697,7 @@ void update_sc_config()
         uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
 
         hv_out_config.h_synclen = h_synclen & 0xff;
-        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_altf << 4) | (vm_conf.ds_field_cfg << 8)) : 0;
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_field_cfg << 8)) : 0;
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
                           (((h_synclen >> 8) & 1) << 2) |

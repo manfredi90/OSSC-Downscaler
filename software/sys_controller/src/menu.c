@@ -101,7 +101,7 @@ static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3", "Wide (180p)" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
-static const char* const ds_out_desc[] = { "240p", "480i", "240p alt." };
+static const char* const ds_out_desc[] = { "240p", "480i" };
 static const char* const ds_480p_in_desc[] = { "Auto", "720x480", "640x480" };
 
 static void sync_vth_disp(alt_u8 v) { sniprintf(menu_row2, LCD_ROW_LEN+1, "%d mV", (v*1127)/100); }

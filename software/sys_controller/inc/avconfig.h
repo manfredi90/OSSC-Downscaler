@@ -172,7 +172,7 @@ typedef struct {
     alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3, 2 = wide (180 lines, letterboxed)
     alt_u8 ds_hfilt_off;    // Standard sampling only (not in the menu): 0 = horizontal 2:1 filter on
     alt_u8 ds_vblend_off;   // 0 = line blending on
-    alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i, 2 = 240p alternating (480i line selection, same scanlines)
+    alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
     alt_u8 ds_unused0;      // was: 480i field order (v0.10 test)
     alt_u8 ds_unused1;      // was: 720p>480i clock (v0.10 test)

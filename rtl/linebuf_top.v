@@ -51,8 +51,7 @@ module linebuf_top (
     // written, as the average of the n lines ending at st (n = 1: plain pick,
     // n = 0 means 4).
     // ds_field_cfg = {fieldB_n[1:0], fieldB_st[1:0], fieldA_n[1:0], fieldA_st[1:0]}
-    // Field B settings apply to every other input frame in interlaced output
-    // (and in 240p "alternating" output, see ds_altf in scanconverter).
+    // Field B settings apply to every other input frame in interlaced output.
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
