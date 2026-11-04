@@ -274,7 +274,7 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
-    { "720p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
+    { "HD format",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 3, value_disp } } },
     { "Width",                                  OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_width,      OPT_NOWRAP, DS_WIDTH_MIN, DS_WIDTH_MAX, ds_width_disp } } },

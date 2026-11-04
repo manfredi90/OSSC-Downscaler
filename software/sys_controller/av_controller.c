@@ -926,6 +926,14 @@ void set_sampler_phase(uint8_t sampler_phase, uint8_t update_sc) {
     if (vm_conf.h_skip == 0) {
         vm_conf.h_sample_sel = 0;
         tvp_phase = sampler_phase;
+    } else if (vm_conf.ds_vdec && vm_conf.ds_pll_n) {
+        // downscaler full resolution with h_skip (Wide, 1080p): the ADC takes
+        // one sample per source pixel and (h_skip+1) of them are averaged, so
+        // the phase is within the source pixel as in the other full
+        // resolution modes (not spread over the group as for oversampling,
+        // which put Wide at 0 deg, on the pixel edges)
+        vm_conf.h_sample_sel = vm_conf.h_skip;
+        tvp_phase = sampler_phase;
     } else {
         sample_rng_x1000 = 360000 / (vm_conf.h_skip+1);
         vm_conf.h_sample_sel = (sampler_phase*11250)/sample_rng_x1000;

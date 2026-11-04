@@ -235,6 +235,17 @@ static const ds_mode_t ds_modes[] = {
     //   480i: 360 rows, 180 per field; field A = lines 0-1 of each group of 4,
     //   field B = lines 2-3 (averaged, or lines 0 / 2 without line blending)
     { HDMI_720p60,      750,  412, 2730, 525, 3, 6, 3,  0, 0,  24, 2, 2, 1, 3, 2, "720pW>480i", 0, 0, 0, 1, 0, 1 },
+    // 1080p60 "4:1 overscan": the 1708x960 window in the middle (60 lines and
+    // 106 pixels cropped per side, ~89% of the picture like the overscan of a
+    // TV), 4 lines per output line, 2 ADC samples averaged per stored pixel
+    // (ADC at the full 148.5MHz pixel clock, 1100 stored samples per line),
+    // 854 stored pixels, 2 clocks per pixel. 480i: field A = lines 0-1,
+    // field B = lines 2-3 of each group.
+    { HDMI_1080p60,    1125, 1100, 2700, 262, 3, 1, 3,  0, 60, 106, 0, 1, 0, 0, 0, "1080p>240p", 0, 0, 0, 1 },
+    { HDMI_1080p60,    1125, 1100, 2700, 525, 3, 1, 3,  0, 60, 106, 0, 1, 1, 3, 2, "1080p>480i", 0, 0, 0, 1 },
+    // 1080p center 4:3: the 1280x960 window, 640 stored pixels, 3 clocks per pixel
+    { HDMI_1080p60,    1125, 1100, 2400, 262, 3, 2, 3,  0, 60, 320, 1, 1, 0, 0, 0, "1080 4:3p",  0, 0, 0, 1 },
+    { HDMI_1080p60,    1125, 1100, 2400, 525, 3, 2, 3,  0, 60, 320, 1, 1, 1, 3, 2, "1080 4:3i",  0, 0, 0, 1 },
     // 480p: native sampling (858/line, 720 active), exactly 2 input lines per output line
     { HDMI_480p60,      525,  858, 1716, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "480p>480i" },
     { HDMI_480p60,      525,  858, 3432, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "480p>480i" },
@@ -270,12 +281,17 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     unsigned i;
     const ds_mode_t *match = NULL;
     uint8_t want_hfilt = !cc->ds_hfilt_off;
+    uint8_t ar;
     // wanted output: 0 = 240p, 1 = 480i
     uint8_t want[2];
     unsigned pass, npass = 0;
 
     if (vm_in->timings.interlaced || (vm_in->timings.v_hz_x100 < 5800) || (vm_in->timings.v_hz_x100 > 6200))
         return NULL;
+    // "HD format" (720p and 1080p): Wide exists for 720p only, 1080p uses 16:9
+    ar = cc->ds_720p_ar;
+    if ((preset->vic == HDMI_1080p60) && (ar == 2))
+        ar = 0;
 
     if (cc->ds_480i)
         want[npass++] = 1;
@@ -290,7 +306,7 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
                 if ((ds_modes[i].vic == preset->vic) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
                     (ds_modes[i].ilace == want[pass]) &&
-                    ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == cc->ds_720p_ar)))
+                    ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar)))
                     return &ds_modes[i];
             }
         }
@@ -298,7 +314,7 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
             if ((ds_modes[i].vic == preset->vic) &&
                 ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
-                ((ds_modes[i].vic != HDMI_720p60) || (ds_modes[i].ar43 == cc->ds_720p_ar))) {
+                ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
                     return &ds_modes[i];
                 if (!match)
@@ -334,8 +350,8 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 // Line written in each group (st, 0..vdec) and number of lines averaged into
 // it (n, ending at st), for field A (240p: every field) and field B (480i).
 static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n_a, int *st_b, int *n_b) {
-    if (m->ilace && m->wide) {
-        // groups of 4 lines: A = lines 0-1, B = lines 2-3
+    if (m->ilace && (m->vdec == 3)) {
+        // groups of 4 lines (Wide, 1080p): A = lines 0-1, B = lines 2-3
         *st_a = cc->ds_vblend_off ? 0 : 1;
         *n_a = cc->ds_vblend_off ? 1 : 2;
         *st_b = cc->ds_vblend_off ? 2 : 3;
@@ -443,24 +459,37 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t u_iline = u_ipx*hin;
     int64_t u_oc = 2*vin*hin;
     int64_t u_oline = u_oc*m->out_h_total;
-    int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1;
+    int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1 + m->v_start;
     int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch;
     int64_t off_out = out_offset;  // output hsync + back porch
     int64_t g = m->vdec+1, k = DS_OUT_V_ROWS(m), d = DS_LB_SLOTS(DS_LB_STRIDE(m, w));
     int64_t p = cc->ds_vphase % (m->vdec+1);
     int64_t eps = DS_T0_MARGIN_OC*u_oc;
-    int64_t lo, hi, lo_b, hi_b;
-    int st_a, n_a, st_b, n_b;
+    int64_t lo = INT64_MIN, hi = INT64_MAX;
+    int st_a, n_a, st_b, n_b, f, i;
 
     ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);
 
-    lo = (y0 + g*(k-1) + st_a + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps;
-    hi = (y0 + g*d + st_a + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps;
-    if (m->ilace) {
-        lo_b = (y0 + g*(k-1) + st_b + p)*u_iline + off_in*u_ipx - (k-1)*u_oline - off_out*u_oc + eps - u_oline/2;
-        hi_b = (y0 + g*d + st_b + p)*u_iline + (off_in+w-1)*u_ipx - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - u_oline/2;
-        if (lo_b > lo) lo = lo_b;
-        if (hi_b < hi) hi = hi_b;
+    // Row r is written while input line y0+g*r+st arrives (first pixel at
+    // off_in) and read during output line T0+r (first pixel at off_out); its
+    // buffer is reused by row r+d. Both conditions are linear in r, so the
+    // worst case is the first or the last row: the last row when reading is
+    // faster than writing (720p: 3 input lines per 2.86), the first row when
+    // writing is faster (1080p 4:1: 4 input lines per 4.29). Within a line the
+    // reader is always slower (an output line spans several input lines), so
+    // the worst pixel is the first one for "written before read" and the last
+    // one for "read before overwritten". 480i field B is read half a line
+    // later relative to its input frame.
+    for (f=0; f<(m->ilace ? 2 : 1); f++) {
+        int64_t st = f ? st_b : st_a;
+        int64_t ofs = f ? u_oline/2 : 0;
+        for (i=0; i<2; i++) {
+            int64_t r = i ? (k-1) : 0;
+            int64_t l = (y0 + g*r + st + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
+            int64_t h = (y0 + g*(r+d) + st + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
+            if (l > lo) lo = l;
+            if (h < hi) hi = h;
+        }
     }
     *lo_o = lo;
     *hi_o = hi;

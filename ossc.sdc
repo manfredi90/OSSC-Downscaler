@@ -11,12 +11,15 @@ create_generated_clock -name flash_clk_out -master_clock flash_clk -source [get_
 
 ### Scanconverter clock constraints ###
 
-# Downscaler firmware: the ADC never runs above ~89MHz (720p 3x oversampled:
-# 88.4MHz, 720p 4:3: 70.7MHz, 480p: 66MHz, 15kHz passthrough: <=~30MHz), so the
-# capture/output domain is constrained at 90MHz instead of the TVP7002 maximum
-# (165MHz).
+# Downscaler firmware: the ADC runs at up to 148.5MHz (1080p, one sample per
+# pixel), which only clocks the capture side (TVP7002 frontend, line buffer
+# write). The output side runs on the ADC clock only in the standard sampling
+# modes and in 15kHz passthrough (<= ~89MHz), otherwise on the FPGA PLL
+# (<= 66MHz): pclk_tvp_high (90MHz) is the master of the clock mux output,
+# pclk_tvp_cap (150MHz) constrains the capture logic.
 create_clock -period 90MHz -name pclk_tvp_high [get_ports TVP_PCLK_i]
 create_clock -period 33MHz -name pclk_tvp_low [get_ports TVP_PCLK_i] -add
+create_clock -period 150MHz -name pclk_tvp_cap [get_ports TVP_PCLK_i] -add
 
 #derive_pll_clocks
 # Downscaler firmware: the FPGA PLL only produces the separate output clock of
@@ -82,6 +85,7 @@ set_clock_groups -asynchronous -group \
                             {pclk_27mhz pclk_27mhz_postmux pclk_27mhz_out} \
                             {pclk_tvp_low} \
                             {pclk_tvp_high} \
+                            {pclk_tvp_cap} \
                             {pclk_1x_postmux pclk_1x_out} \
                             {pclk_5x pclk_5x_postmux pclk_5x_out}
 
