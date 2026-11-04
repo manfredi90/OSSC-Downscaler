@@ -1,6 +1,18 @@
 Changelog
 =========
 
+Unreleased (test build 1.1.4)
+-----------------------------
+
+### New
+- 1080p Wide (180p): the whole 16:9 picture letterboxed, 1848x1080 -> 308x180
+  (6x6 pixel average; with line blending the 4 middle lines of each group of
+  6), 240p and 480i output.
+
+### Internal
+- Ibex instruction cache disabled (frees ~2400 logic elements and 6 M9K
+  blocks; the code runs from flash with the prefetch buffer only).
+
 v1.1
 ----
 

@@ -362,7 +362,7 @@
   <parameter name="AUTO_NOT_MASKABLE_IRQ_INTERRUPTS_USED" value="0" />
   <parameter name="AUTO_SOFTWARE_IRQ_INTERRUPTS_USED" value="0" />
   <parameter name="AUTO_TIMER_IRQ_INTERRUPTS_USED" value="1" />
-  <parameter name="IBEX_ICACHE" value="true" />
+  <parameter name="IBEX_ICACHE" value="false" />
   <parameter name="IBEX_RV32E" value="true" />
  </module>
  <module

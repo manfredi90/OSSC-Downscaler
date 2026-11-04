@@ -51,10 +51,10 @@ module scanconverter (
     input [31:0] sl_config3,
     input testpattern_enable,
     input lb_enable,
-    input [1:0] ds_vdec,
+    input [2:0] ds_vdec,
     input [1:0] lb_layout,
     input [1:0] ds_hfilt,
-    input [7:0] ds_field_cfg,
+    input [9:0] ds_field_cfg,
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
@@ -162,7 +162,7 @@ wire [7:0] X_START_LB = xy_out_config2[17:10];
 // In downscaler mode the y_start_lb field holds the first stored input line
 // (see linebuf_top) and the output always starts from line buffer 0.
 wire [5:0] DS_VSTART = xy_out_config2[23:18];
-wire signed [5:0] Y_START_LB = (ds_vdec != 2'h0) ? 6'sd0 : xy_out_config2[23:18];
+wire signed [5:0] Y_START_LB = (ds_vdec != 3'h0) ? 6'sd0 : xy_out_config2[23:18];
 
 wire signed [4:0] X_RPT = {hv_ext_config[4], xy_out_config2[27:24]};
 wire signed [3:0] Y_RPT = xy_out_config2[31:28];

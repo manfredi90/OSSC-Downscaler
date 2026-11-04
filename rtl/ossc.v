@@ -88,12 +88,13 @@ wire [31:0] misc_config_fe = {misc_config[31:15], 3'h0, 5'h0, misc_config[6:0]};
 wire [31:0] misc_config_sc = {misc_config[31:25], 1'b0, 8'h0, 1'b0, misc_config[14:0]};
 
 // Downscaler controls (misc_config reserved bits)
-wire [1:0] ds_vdec = misc_config[26:25];    // store 1 of every (ds_vdec+1) input lines
+// store 1 of every (ds_vdec+1) input lines (bit 2 in sl_config: groups of 6)
+wire [2:0] ds_vdec = {sl_config[7], misc_config[26:25]};
 wire [1:0] ds_csync = misc_config[28:27];   // 0=off, 1=XOR, 2=AND (CSync on HSYNC)
 wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf_top)
 // sl_config (scanlines removed) now carries downscaler filter controls,
 // sl_config2 the extension bits of the wide horizontal output timings
-wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
+wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 4, 3=avg of 6 ADC samples
 wire ds_ilace = sl_config[3];               // interlaced (480i) output, one field per input frame
 wire ds_fswap = sl_config[2];               // 480i: swapped field order
 // 480i/576i input shown as 240p/288p: both fields with the vsync at a line
@@ -110,7 +111,9 @@ wire ds_lb_rgb = sl_config3[29];            //   1 = RGB, one pixel per word (el
 wire [12:0] ds_hofs = sl_config3[28:16];    // output H position at the input frame start
 wire [7:0] ds_resync_cnt;
 wire [9:0] ds_fperiod_lo;
-wire [7:0] ds_field_cfg = sl_config[15:8];  // per-field line selection/blending (see linebuf_top)
+// per-field line selection/blending (see linebuf_top); bits 9:8 = bit 2 of
+// the field A / field B line position (groups of 6)
+wire [9:0] ds_field_cfg = {sl_config[22:21], sl_config[15:8]};
 
 wire pll_clkout, pll_clkswitch, pll_locked;
 wire clkmux_clkout;

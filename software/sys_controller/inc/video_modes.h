@@ -176,11 +176,11 @@ typedef struct {
     uint8_t ds_vdec;
     uint8_t ds_csync;
     uint8_t ds_lb_layout;
-    uint8_t ds_hfilt;       // 0 = off, 1 = avg 2, 2 = avg 3 ADC samples
+    uint8_t ds_hfilt;       // 0 = off, 1 = avg 2, 2 = avg 4, 3 = avg 6 ADC samples
     uint8_t ds_vblend;
     uint16_t ds_h_synclen;  // output hsync length (9 bits)
     uint8_t ds_ilace;       // 480i: one output field per input frame
-    uint8_t ds_field_cfg;   // {B_n, B_st, A_n, A_st} 2 bits each
+    uint16_t ds_field_cfg;  // {B_st[2], A_st[2], B_n, B_st, A_n, A_st} (2 bits each)
     uint8_t ds_fswap;       // 480i: field B in the odd field
     uint16_t ds_pll_n;      // separate output clock: pclk_out = pclk_in*M/(N*C), 0 = output at ADC clock
     uint16_t ds_pll_m;

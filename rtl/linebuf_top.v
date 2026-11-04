@@ -37,22 +37,24 @@ module linebuf_top (
     input line_id,
     input lb_enable,
     // Downscaler: store only every (ds_vdec+1)th input line, starting at
-    // input line ds_vstart. ds_vdec=0 keeps the stock behaviour.
-    input [1:0] ds_vdec,
+    // input line ds_vstart (groups of 2-6 lines). ds_vdec=0 keeps the stock
+    // behaviour.
+    input [2:0] ds_vdec,
     input [5:0] ds_vstart,
     // Line buffer layout: 0 = 2 x 2048 px (stock), 1 = 8 x 1024 px,
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
     // Horizontal box filter for oversampled input: 0 = off, 1 = average of 2
-    // ADC samples (h_skip=1), 2 = average of 4 (h_skip=3)
+    // ADC samples (h_skip=1), 2 = average of 4 (h_skip=3), 3 = average of 6
+    // (h_skip=5)
     input [1:0] ds_hfilt,
     // Vertical line selection. Input lines are grouped by (ds_vdec+1) starting
     // at line ds_vstart; in each group the line at position st (0..ds_vdec) is
     // written, as the average of the n lines ending at st (n = 1: plain pick,
     // n = 0 means 4).
-    // ds_field_cfg = {fieldB_n[1:0], fieldB_st[1:0], fieldA_n[1:0], fieldA_st[1:0]}
+    // ds_field_cfg = {fieldB_st[2], fieldA_st[2], fieldB_n[1:0], fieldB_st[1:0], fieldA_n[1:0], fieldA_st[1:0]}
     // Field B settings apply to every other input frame in interlaced output.
-    input [7:0] ds_field_cfg,
+    input [9:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
     // 480p -> 480i flicker filter (RGB storage, groups of 2 lines, st = 1):
@@ -375,19 +377,19 @@ assign {R_linebuf, G_linebuf, B_linebuf} = {o_R, o_G, o_B};
 //   stage U1: blend (accumulate), blend RAM write
 //   stage U2: group average, line buffer write
 // ---------------------------------------------------------------------------
-wire ds_mode = (ds_vdec != 2'h0);
+wire ds_mode = (ds_vdec != 3'h0);
 reg [1:0] in_field_sync;
 always @(posedge PCLK_CAP_i)
     in_field_sync <= {in_field_sync[0], in_field};
 
 wire fld_b = ds_ilace & in_field_sync[1];
-wire [1:0] st_gpos = fld_b ? ds_field_cfg[5:4] : ds_field_cfg[1:0];
+wire [2:0] st_gpos = fld_b ? {ds_field_cfg[9], ds_field_cfg[5:4]} : {ds_field_cfg[8], ds_field_cfg[1:0]};
 wire [1:0] n_field = fld_b ? ds_field_cfg[7:6] : ds_field_cfg[3:2];
 wire [2:0] n_blend = (n_field == 2'h0) ? 3'h4 : {1'b0, n_field};      // 1..4
-wire [1:0] first_gpos = st_gpos - n_blend[1:0] + 2'h1;
+wire [2:0] first_gpos = st_gpos - n_blend + 3'h1;
 wire blend_en = ds_mode & (n_blend > 3'h1);
 
-reg [1:0] ds_gpos;          // line position inside the current group
+reg [2:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
 reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9 bits)
@@ -399,11 +401,11 @@ reg [10:0] grp_start, first_store;
 reg [4:0] vf_wc, vf_wf;     // flicker filter center line weights: 16-2a, first row 16-a
 always @(posedge PCLK_CAP_i) begin
     grp_start <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b};
-    first_store <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b} + {9'h0, st_gpos};
+    first_store <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b} + {8'h0, st_gpos};
     vf_wc <= 5'd16 - {vflt_a[3:0], 1'b0};
     vf_wf <= 5'd16 - vflt_a;
 end
-wire [1:0] next_gpos = (ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 2'h1);
+wire [2:0] next_gpos = (ypos_i == grp_start) ? 3'h0 : ((ds_gpos == ds_vdec) ? 3'h0 : ds_gpos + 3'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
 
 // stages A/B: horizontal filter
@@ -412,12 +414,25 @@ reg [10:0] x_a, x_b;
 reg v_a, v_b;
 reg [7:0] Rr_b, Gr_b, Br_b;
 reg [8:0] s2R_b, s2G_b, s2B_b, s2R_cd, s2G_cd, s2B_cd;
+// 6-sample box (hfilt 3): sum of the 6 samples two clocks before the
+// selected one (k-7..k-2: a fixed 2-sample shift), registered, then x171/1024
+// (~1/6) in a registered multiplier, so that it has the same latency as the
+// other filters
+reg [8:0] s2R_cd1, s2G_cd1, s2B_cd1, s2R_cd2, s2G_cd2, s2B_cd2;
+reg [10:0] s6R, s6G, s6B;
+reg [17:0] m6R, m6G, m6B;
 wire [9:0] s4R = {1'b0, s2R_b} + {1'b0, s2R_cd};
 wire [9:0] s4G = {1'b0, s2G_b} + {1'b0, s2G_cd};
 wire [9:0] s4B = {1'b0, s2B_b} + {1'b0, s2B_cd};
-wire [7:0] R_h = (ds_hfilt == 2'h1) ? s2R_b[8:1] : ((ds_hfilt == 2'h2) ? s4R[9:2] : Rr_b);
-wire [7:0] G_h = (ds_hfilt == 2'h1) ? s2G_b[8:1] : ((ds_hfilt == 2'h2) ? s4G[9:2] : Gr_b);
-wire [7:0] B_h = (ds_hfilt == 2'h1) ? s2B_b[8:1] : ((ds_hfilt == 2'h2) ? s4B[9:2] : Br_b);
+reg [7:0] R_h, G_h, B_h;
+always @(*) begin
+    case (ds_hfilt)
+        2'h1: {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
+        2'h2: {R_h, G_h, B_h} = {s4R[9:2], s4G[9:2], s4B[9:2]};
+        2'h3: {R_h, G_h, B_h} = {m6R[17:10], m6G[17:10], m6B[17:10]};
+        default: {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
+    endcase
+end
 
 // stage 1 registers
 reg [7:0] R_1, G_1, B_1;
@@ -445,11 +460,19 @@ always @(posedge PCLK_CAP_i) begin
     s2G_cd <= {1'b0, G_c} + {1'b0, G_d};
     s2B_cd <= {1'b0, B_c} + {1'b0, B_d};
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
+    {s2R_cd1, s2G_cd1, s2B_cd1} <= {s2R_cd, s2G_cd, s2B_cd};
+    {s2R_cd2, s2G_cd2, s2B_cd2} <= {s2R_cd1, s2G_cd1, s2B_cd1};
+    s6R <= {2'b0, s2R_b} + {2'b0, s2R_cd} + {2'b0, s2R_cd2};
+    s6G <= {2'b0, s2G_b} + {2'b0, s2G_cd} + {2'b0, s2G_cd2};
+    s6B <= {2'b0, s2B_b} + {2'b0, s2B_cd} + {2'b0, s2B_cd2};
+    m6R <= s6R * 8'd171;
+    m6G <= s6G * 8'd171;
+    m6B <= s6B * 8'd171;
     x_b <= x_a;
     v_b <= v_a;
 
     // per-line control
-    if (ds_vdec == 2'h0) begin
+    if (ds_vdec == 3'h0) begin
         // stock: every input line goes to the next buffer
         ds_store <= 1'b1;
         ds_first <= 1'b1;
@@ -482,10 +505,10 @@ always @(posedge PCLK_CAP_i) begin
         end
 
         ds_first <= (next_gpos == first_gpos);
-        vf_center <= (next_gpos == 2'h0);
+        vf_center <= (next_gpos == 3'h0);
         vf_first <= (ypos_i == grp_start);
-        vf_w <= (next_gpos != 2'h0) ? vflt_a : ((ypos_i == grp_start) ? vf_wf : vf_wc);
-        ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 2'h2);
+        vf_w <= (next_gpos != 3'h0) ? vflt_a : ((ypos_i == grp_start) ? vf_wf : vf_wc);
+        ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 3'h2);
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
     end
     ypos_prev <= ypos_i;

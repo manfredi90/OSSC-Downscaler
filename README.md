@@ -53,7 +53,7 @@ Supported inputs and outputs
 
 | Input (~60Hz)       | Output | Notes |
 |---------------------|--------|-------|
-| 1920x1080p          | 240p / 480i | 4 input lines per output line. **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically |
+| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending) |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
@@ -91,7 +91,7 @@ Downscaler menu
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
 | 480i input | Passthru, 240p | 480i sources: unchanged, or both fields shown on the same scanlines as 240p (no interlacing, the picture keeps the 240p look) |
 | 480i filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |
-| HD format | Full 16:9, Center 4:3, Wide (180p) | 720p and 1080p (Wide: 720p only, 1080p uses Full 16:9) |
+| HD format | Full 16:9, Center 4:3, Wide (180p) | 720p and 1080p |
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |
 | Width | 78%–107% | picture width, 100% = standard width (80% of the line) |
@@ -106,8 +106,6 @@ firmware's own sector, independent of the official profiles).
 Known issues and next steps
 ---------------------------
 
-* **1080p Wide** (whole 16:9 picture letterboxed, e.g. 216p) is not available
-  yet; planned.
 * **PAL** is still to be investigated: 576i -> 288p ("480i input") is not
   tested yet, 576p input is not supported yet (planned).
 
