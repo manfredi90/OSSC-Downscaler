@@ -3,7 +3,7 @@ OSSC Downscaler firmware
 
 An unofficial secondary firmware for the [Open Source Scan Converter](https://github.com/marqs85/ossc)
 that does the opposite of the stock firmware: it takes **HD and 31kHz sources
-on the VGA input** and outputs **15kHz 240p or 480i on HDMI**, for RGB CRT TVs
+on the VGA or component inputs** and outputs **15kHz 240p or 480i on HDMI**, for RGB CRT TVs
 and 15kHz monitors (through an HDMI→VGA DAC and a VGA→SCART cable). The output
 is frame locked to the input: no frame buffer, no added frame of lag.
 
@@ -51,18 +51,20 @@ Requirements
 Supported inputs and outputs
 ----------------------------
 
-| Input (VGA, ~60Hz)  | Output | Notes |
+| Input (~60Hz)       | Output | Notes |
 |---------------------|--------|-------|
+| 1920x1080p          | 240p / 480i | 4 input lines per output line. **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
-| 720x480p            | 240p / 480i | |
-| 640x480p            | 240p / 480i | |
+| 720x480p            | 240p / 480i | optional flicker filter in 480i |
+| 640x480p            | 240p / 480i | optional flicker filter in 480i |
+| 480i / 576i         | 480i / 576i, or 240p / 288p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input") |
 
 * 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines.
 * Every source pixel is sampled ("full resolution" sampling) and the output
   clock is generated at an exact ratio of the input clock, so horizontal
   scrolling stays smooth.
-* Native 15kHz sources are passed through unchanged; any other input shows the
-  test pattern with "Unsupported".
+* Other native 15kHz sources are passed through unchanged; any other input
+  shows the test pattern with "Unsupported".
 
 
 Installation
@@ -87,7 +89,9 @@ Downscaler menu
 | Output mode | 240p, 480i | |
 | CSync on HSYNC | Off (H+V), XOR, AND, Standard | composite sync type; Standard has equalizing pulses and serrated vsync. |
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
-| 720p format | Full 16:9, Center 4:3, Wide (180p) | |
+| 480i input | Passthru, 240p | 480i/576i sources: unchanged, or both fields shown on the same scanlines as 240p/288p (no interlacing, the picture keeps the 240p look) |
+| 480i filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |
+| HD format | Full 16:9, Center 4:3, Wide (180p) | 720p and 1080p (Wide: 720p only, 1080p uses Full 16:9) |
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |
 | Width | 78%–107% | picture width, 100% = standard width (80% of the line) |
@@ -102,8 +106,8 @@ firmware's own sector, independent of the official profiles).
 Known issues and next steps
 ---------------------------
 
-* **720p Wide (180p) shimmers** on moving pictures; to be fixed.
-* **1080p input** is not supported yet; planned.
+* **1080p Wide** (whole 16:9 picture letterboxed, e.g. 216p) is not available
+  yet; planned.
 
 
 Building
