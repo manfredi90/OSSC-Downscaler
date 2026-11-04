@@ -188,6 +188,10 @@ typedef struct {
     uint16_t ds_lb_stride;  // line buffer layout 3 (YCbCr 4:2:2): words per line
     uint8_t ds_lb_slots;    //   number of lines
     uint8_t ds_lb_rgb;      //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
+    uint8_t ds_i2p;         // 480i/576i input shown as 240p/288p
+    uint8_t ds_i2p_flt;     //   2-line filter on
+    uint8_t ds_i2p_wtop;    //   weight of the previous line in the top / bottom field (1/16)
+    uint8_t ds_i2p_wbot;
     uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 

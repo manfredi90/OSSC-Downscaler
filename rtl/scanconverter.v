@@ -57,6 +57,10 @@ module scanconverter (
     input [7:0] ds_field_cfg,
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
+    input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
+    input ds_i2p_flt,           // 480i -> 240p: 2-line filter per field (see linebuf_top)
+    input [4:0] ds_i2p_wtop,
+    input [4:0] ds_i2p_wbot,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
     input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
@@ -396,6 +400,10 @@ linebuf_top #(
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
+    .i2p_flt(ds_i2p_flt),
+    .i2p_wtop(ds_i2p_wtop),
+    .i2p_wbot(ds_i2p_wbot),
+    .fid_i(FID_i),
     .in_field(in_field),
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),
@@ -519,6 +527,7 @@ end
 // Computed in 4 register stages (timing), output enters the pipeline at
 // stage 4 so that it stays aligned with HSYNC/VSYNC.
 reg cs_half_a, cs_even_a, cs_half_b;
+reg signed [13:0] cs_flen_a;
 reg [12:0] cs_hpos_a;
 reg [10:0] cs_v_a;
 reg signed [13:0] cs_pcur_b, cs_pnext_b;
@@ -526,17 +535,19 @@ reg cs_lt_vs_b, cs_lt_eq_b, cs_lt_hs_b, cs_lt_vs_c, cs_lt_eq_c, cs_lt_hs_c;
 reg cs_vs_c, cs_eq_c;
 reg cs_d;   // = pipeline stage 4
 wire signed [13:0] cs_vs_end = $signed({9'h0, V_SYNCLEN, 1'b0});
-wire signed [13:0] cs_flen = $signed({2'b00, V_TOTAL, 1'b0}) + $signed({13'h0, V_INTERLACED});
 wire signed [13:0] cs_p = (cs_pnext_b >= -14'sd6) ? cs_pnext_b : cs_pcur_b;
 always @(posedge PCLK_OUT_i) begin
     // stage A (same time as pipeline stage 1)
     cs_half_a <= (h_cnt >= (H_TOTAL/2));
     cs_hpos_a <= (h_cnt >= (H_TOTAL/2)) ? (h_cnt - (H_TOTAL/2)) : h_cnt;
     cs_v_a <= v_cnt;
-    cs_even_a <= V_INTERLACED & (dst_fid == FID_EVEN);
+    cs_even_a <= V_INTERLACED & ~ds_i2p & (dst_fid == FID_EVEN);
+    // field length in half lines (480i: 262.5 lines; 480i -> 240p: 263 / 262)
+    cs_flen_a <= ds_i2p ? $signed({2'b00, V_TOTAL + {10'h0, (dst_fid == FID_ODD)}, 1'b0}) :
+                          ($signed({2'b00, V_TOTAL, 1'b0}) + $signed({13'h0, V_INTERLACED}));
     // stage B
     cs_pcur_b <= $signed({2'b00, cs_v_a, cs_half_a}) + $signed({13'h0, cs_even_a});
-    cs_pnext_b <= $signed({2'b00, cs_v_a, cs_half_a}) + $signed({13'h0, cs_even_a}) - cs_flen;
+    cs_pnext_b <= $signed({2'b00, cs_v_a, cs_half_a}) + $signed({13'h0, cs_even_a}) - cs_flen_a;
     cs_half_b <= cs_half_a;
     cs_lt_vs_b <= (cs_hpos_a < ((H_TOTAL/2) - H_SYNCLEN));
     cs_lt_eq_b <= (cs_hpos_a < (H_SYNCLEN/2));
@@ -552,7 +563,9 @@ end
 // Pipeline stage 1
 always @(posedge PCLK_OUT_i) begin
     HSYNC_pp[1] <= (h_cnt < H_SYNCLEN) ? 1'b0 : 1'b1;
-    if (dst_fid == FID_ODD)
+    if (ds_i2p)
+        VSYNC_pp[1] <= (v_cnt < V_SYNCLEN) ? 1'b0 : 1'b1;     // 480i -> 240p: both fields at a line start
+    else if (dst_fid == FID_ODD)
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN) | ((v_cnt == V_TOTAL) & (h_cnt >= (H_TOTAL/2)))) ? 1'b0 : 1'b1;
     else
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN-1) | ((v_cnt == V_SYNCLEN-1) & (h_cnt < (H_TOTAL/2)))) ? 1'b0 : 1'b1;

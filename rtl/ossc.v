@@ -96,6 +96,13 @@ wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf
 wire [1:0] ds_hfilt = sl_config[1:0];       // horizontal filter: 0=off, 1=avg of 2, 2=avg of 3 ADC samples
 wire ds_ilace = sl_config[3];               // interlaced (480i) output, one field per input frame
 wire ds_fswap = sl_config[2];               // 480i: swapped field order
+// 480i/576i input shown as 240p/288p: both fields with the vsync at a line
+// start (same scanlines), optional 2-line filter per field (weights of the
+// previous line in 1/16 for the top and the bottom field)
+wire ds_i2p = sl_config[4];
+wire ds_i2p_flt = sl_config[5];
+wire [4:0] ds_i2p_wtop = sl_config[20:16];
+wire [4:0] ds_i2p_wbot = sl_config[25:21];
 wire [9:0] ds_lb_stride = sl_config3[9:0];  // line buffer layout 3: words per line
 wire [5:0] ds_lb_slots = sl_config3[15:10]; //   number of lines
 wire ds_lb_rgb = sl_config3[29];            //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
@@ -537,6 +544,10 @@ scanconverter #(
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
     .ds_fswap(ds_fswap),
+    .ds_i2p(ds_i2p),
+    .ds_i2p_flt(ds_i2p_flt),
+    .ds_i2p_wtop(ds_i2p_wtop),
+    .ds_i2p_wbot(ds_i2p_wbot),
     .lb_stride(ds_lb_stride),
     .lb_slots(ds_lb_slots),
     .lb_rgb(ds_lb_rgb),

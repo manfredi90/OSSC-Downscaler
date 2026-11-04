@@ -1101,6 +1101,28 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
 #endif
     vm_conf->framelock = 1;
 
+    // 480i/576i input shown as 240p/288p: the output keeps the interlaced
+    // line timing (fields of 263 and 262 lines, frame locked like the
+    // passthrough) but both vsyncs start at a line start, so that both fields
+    // land on the same scanlines. The optional 2-line filter mixes each line
+    // with the previous one of the same field; with the previous-line weights
+    // a (top field) and b (bottom field) the fields are centered at 2j-2a and
+    // 2j+1-2b (480-line units), b-a = 1/2 puts them at the same height (no
+    // up/down bobbing). Levels 1-4: b-a = 1/8 .. 1/2, a = (b-a)/2.
+    if ((mindiff_lm == MODE_PT) && vm_in->timings.interlaced && cc->ds_i2p &&
+        ((mode_preset->group == GROUP_480I) || (mode_preset->group == GROUP_576I))) {
+        static const uint8_t wa[5] = {0, 1, 2, 3, 4}, wb[5] = {0, 3, 6, 9, 12};
+        uint8_t lvl = (cc->ds_i2p_flt > 4) ? 0 : cc->ds_i2p_flt;
+
+        vm_conf->ds_i2p = 1;
+        // the blend RAM holds 768 pixels of the previous line
+        if (lvl && (vm_in->timings.h_active <= 768)) {
+            vm_conf->ds_i2p_flt = 1;
+            vm_conf->ds_i2p_wtop = cc->ds_i2p_swap ? wb[lvl] : wa[lvl];
+            vm_conf->ds_i2p_wbot = cc->ds_i2p_swap ? wa[lvl] : wb[lvl];
+        }
+    }
+
     if (vm_out->vic == HDMI_Unknown)
         vm_out->vic = cc->default_vic;
 
