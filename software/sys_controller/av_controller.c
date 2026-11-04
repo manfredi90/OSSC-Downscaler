@@ -1275,7 +1275,7 @@ int main(int argc, char **argv, char **envp)
         printf("### DIY VIDEO DIGITIZER / SCANCONVERTER INIT OK ###\n\n");
         strncpy(row1, "OSSC  Downscaler", LCD_ROW_LEN+1);
 #ifndef DEBUG
-        sniprintf(row2, LCD_ROW_LEN+1, "v%s 2nd FW 15kHz", DS_VERSION);
+        sniprintf(row2, LCD_ROW_LEN+1, "DS v%s 15kHz", DS_VERSION);   // fits 16 chars with x.y.z versions
 #else
         strncpy(row2, "** DEBUG BUILD *", LCD_ROW_LEN+1);
 #endif

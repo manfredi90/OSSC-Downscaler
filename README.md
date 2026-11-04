@@ -72,7 +72,7 @@ Installation
 2. In the **official** firmware, install it with the firmware update function
    of the settings menu. The image carries the secondary-firmware key, so it
    is written to the secondary slot only.
-3. Start it with **Launch 2nd FW**. The LCD shows `vX.Y 2nd FW 15kHz` and the
+3. Start it with **Launch 2nd FW**. The LCD shows `DS vX.Y 15kHz` and the
    OSSC outputs the 15kHz test pattern until a supported input is found.
 4. Press button 3 on the remote control (RGBHV) to switch to the correct input   
 
