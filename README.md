@@ -106,8 +106,9 @@ firmware's own sector, independent of the official profiles).
 Known issues and next steps
 ---------------------------
 
-* **PAL** is still to be investigated: 576i -> 288p ("480i input") is not
-  tested yet, 576p input is not supported yet (planned).
+* **PAL** is still to be investigated: 576i -> 288p ("480i input") shows
+  strong flicker on hardware (480i -> 240p with the same source is stable),
+  576p input is not supported yet (planned).
 
 
 Building

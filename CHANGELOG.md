@@ -13,6 +13,11 @@ Unreleased (test builds 1.1.4, 1.1.5)
 - 1.1.4 only: Ibex instruction cache disabled as a test (FPGA logic 94% ->
   86%), but some menu functions took seconds; enabled again in 1.1.5.
 
+### Known issues
+- 576i -> 288p ("480i input" set to 240p) flickers strongly on hardware,
+  while 480i -> 240p with the same source is stable; simulation shows the
+  expected timing (fields of 313/312 lines, vsync at a line start).
+
 
 v1.1
 ----
