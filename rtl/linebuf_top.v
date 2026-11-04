@@ -394,8 +394,15 @@ reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9
 reg vf_center, vf_first;    // per line: flicker filter center line / first one of the field
 reg [4:0] vf_w;             // per line: flicker filter weight of this line (1/16)
 
-wire [10:0] grp_start = {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b};
-wire [10:0] first_store = grp_start + {9'h0, st_gpos};
+// (registered: they change once per input frame, in the vertical blanking)
+reg [10:0] grp_start, first_store;
+reg [4:0] vf_wc, vf_wf;     // flicker filter center line weights: 16-2a, first row 16-a
+always @(posedge PCLK_CAP_i) begin
+    grp_start <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b};
+    first_store <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b} + {9'h0, st_gpos};
+    vf_wc <= 5'd16 - {vflt_a[3:0], 1'b0};
+    vf_wf <= 5'd16 - vflt_a;
+end
 wire [1:0] next_gpos = (ypos_i == grp_start) ? 2'h0 : ((ds_gpos == ds_vdec) ? 2'h0 : ds_gpos + 2'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
 
@@ -418,7 +425,8 @@ reg [10:0] x_1;
 reg v_1;
 
 // line buffer base address of the line being written (layout 3)
-reg [12:0] wr_base;
+reg [12:0] wr_base, wr_base_p;
+reg [5:0] ypos_wraddr_d;
 
 always @(posedge PCLK_CAP_i) begin
     // stage A
@@ -476,13 +484,16 @@ always @(posedge PCLK_CAP_i) begin
         ds_first <= (next_gpos == first_gpos);
         vf_center <= (next_gpos == 2'h0);
         vf_first <= (ypos_i == grp_start);
-        vf_w <= (next_gpos != 2'h0) ? vflt_a : ((ypos_i == grp_start) ? (5'd16 - vflt_a) : (5'd16 - {vflt_a[3:0], 1'b0}));
+        vf_w <= (next_gpos != 2'h0) ? vflt_a : ((ypos_i == grp_start) ? vf_wf : vf_wc);
         ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 2'h2);
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
     end
     ypos_prev <= ypos_i;
     // (changes during horizontal blanking only, long before the first write)
-    wr_base <= ypos_wraddr * lb_stride;
+    // (two registers: the base changes once per line, in the blanking)
+    ypos_wraddr_d <= ypos_wraddr;
+    wr_base_p <= ypos_wraddr_d * lb_stride;
+    wr_base <= wr_base_p;
 
     // stage B -> 1
     R_1 <= R_h;
@@ -589,6 +600,9 @@ wire [12:0] vs1 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[23:12]}) + {1'
 wire [12:0] vs2 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[11:0]})  + {1'b0, vc2_1b};
 
 // U2 registers
+reg acc_we;
+reg [9:0] acc_wa;
+reg [35:0] acc_wd;
 reg [23:0] vout_2;
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
 reg [7:0] q0_2, q1_2, q2_2, q3_2;
@@ -598,12 +612,14 @@ reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
-    if (vflt) begin
-        if (uv1b & (ua1b < 11'd768))
-            acc_mem[ua1b[9:0]] <= vf_center ? {vs0[11:0], vs1[11:0], vs2[11:0]} : {vc0_1b, vc1_1b, vc2_1b};
-    end else if (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768))
-        acc_mem[ua1b[9:0]] <= ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
-                             (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
+    // blend RAM write (registered: each unit is written once per line)
+    acc_we <= vflt ? (uv1b & (ua1b < 11'd768)) : (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768));
+    acc_wa <= ua1b[9:0];
+    acc_wd <= vflt ? (vf_center ? {vs0[11:0], vs1[11:0], vs2[11:0]} : {vc0_1b, vc1_1b, vc2_1b}) :
+              (ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
+               (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]}));
+    if (acc_we)
+        acc_mem[acc_wa] <= acc_wd;
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
     vout_2 <= {vs0[11:4], vs1[11:4], vs2[11:4]};
