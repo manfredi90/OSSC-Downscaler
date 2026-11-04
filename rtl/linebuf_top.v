@@ -477,8 +477,11 @@ end
 // YCbCr 4:2:2 (layout 3): BT.601 full range, 8.8 fixed point
 reg [15:0] cy_Y;
 reg [16:0] cy_Cb, cy_Cr;
-reg [10:0] x_c1;
-reg v_c1;
+reg [10:0] x_c0, x_c1;
+reg v_c0, v_c1;
+// C0: products (registered so that the 148.5MHz 1080p capture meets timing)
+reg [15:0] pyR, pyG, pyB, pbR, pbG, prG, prB;
+reg [7:0] pR, pB;
 reg [7:0] p_Y0, p_Cb0, p_Cr0;
 wire [7:0] c2_Y = cy_Y[15:8] + cy_Y[7];
 wire [7:0] c2_Cb = cy_Cb[15:8];
@@ -495,15 +498,29 @@ reg ublend1;
 // blend accumulator: one line of units, 9 bits per channel (RGB: 768
 // pixels, 4:2:2: 768 pixel pairs)
 (* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:767];   // 3 x (256 x 36)
-reg [35:0] acc_q;
+reg [35:0] acc_q, acc_q2;
+reg [31:0] u1b;
+reg [10:0] ua1b;
+reg uv1b;
 
 always @(posedge PCLK_CAP_i) begin
-    // C1: color space conversion
-    cy_Y  <= 16'd77*R_1 + 16'd150*G_1 + 16'd29*B_1;
-    cy_Cb <= 17'd32768 + 17'd128*B_1 - 17'd43*R_1 - 17'd85*G_1;
-    cy_Cr <= 17'd32768 + 17'd128*R_1 - 17'd107*G_1 - 17'd21*B_1;
-    x_c1 <= x_1;
-    v_c1 <= v_1;
+    // C0: color space conversion products
+    pyR <= 16'd77*R_1;
+    pyG <= 16'd150*G_1;
+    pyB <= 16'd29*B_1;
+    pbR <= 16'd43*R_1;
+    pbG <= 16'd85*G_1;
+    prG <= 16'd107*G_1;
+    prB <= 16'd21*B_1;
+    {pR, pB} <= {R_1, B_1};
+    x_c0 <= x_1;
+    v_c0 <= v_1;
+    // C1: sums
+    cy_Y  <= pyR + pyG + pyB;
+    cy_Cb <= 17'd32768 + {1'b0, pB, 7'h0} - {1'b0, pbR} - {1'b0, pbG};
+    cy_Cr <= 17'd32768 + {1'b0, pR, 7'h0} - {1'b0, prG} - {1'b0, prB};
+    x_c1 <= x_c0;
+    v_c1 <= v_c0;
 
     // C2 / U0: storage unit
     if (lb422) begin
@@ -518,24 +535,30 @@ always @(posedge PCLK_CAP_i) begin
         uv0 <= v_1 & (~lbs | (x_1 < {1'b0, lb_stride}));
     end
 
-    // U0 -> U1 (blend RAM read)
+    // U0 -> U1 (blend RAM read), U1 -> U1b (RAM output register)
     acc_q <= acc_mem[ua0[9:0]];
     u1 <= u0;
     ua1 <= ua0;
     uv1 <= uv0;
+    acc_q2 <= acc_q;
+    u1b <= u1;
+    ua1b <= ua1;
+    uv1b <= uv1;
 end
 
-// U1: accumulate (adders only)
-wire [9:0] s0 = {1'b0, acc_q[35:27]} + {2'b0, u1[31:24]};
-wire [9:0] s1 = {1'b0, acc_q[26:18]} + {2'b0, u1[23:16]};
-wire [9:0] s2 = {1'b0, acc_q[17:9]}  + {2'b0, u1[15:8]};
-wire [9:0] s3 = {1'b0, acc_q[8:0]}   + {2'b0, u1[7:0]};
+// U1b: accumulate (adders only); the blend RAM is read two clocks earlier.
+// A unit is read and written once per line, so the read-modify-write
+// latency does not matter.
+wire [9:0] s0 = {1'b0, acc_q2[35:27]} + {2'b0, u1b[31:24]};
+wire [9:0] s1 = {1'b0, acc_q2[26:18]} + {2'b0, u1b[23:16]};
+wire [9:0] s2 = {1'b0, acc_q2[17:9]}  + {2'b0, u1b[15:8]};
+wire [9:0] s3 = {1'b0, acc_q2[8:0]}   + {2'b0, u1b[7:0]};
 
 // 4-line blend at the written line: 2 x (sum of 3 lines / 2) + this line
-wire [10:0] t0 = {1'b0, acc_q[35:27], 1'b0} + {3'b0, u1[31:24]};
-wire [10:0] t1 = {1'b0, acc_q[26:18], 1'b0} + {3'b0, u1[23:16]};
-wire [10:0] t2 = {1'b0, acc_q[17:9], 1'b0}  + {3'b0, u1[15:8]};
-wire [10:0] t3 = {1'b0, acc_q[8:0], 1'b0}   + {3'b0, u1[7:0]};
+wire [10:0] t0 = {1'b0, acc_q2[35:27], 1'b0} + {3'b0, u1b[31:24]};
+wire [10:0] t1 = {1'b0, acc_q2[26:18], 1'b0} + {3'b0, u1b[23:16]};
+wire [10:0] t2 = {1'b0, acc_q2[17:9], 1'b0}  + {3'b0, u1b[15:8]};
+wire [10:0] t3 = {1'b0, acc_q2[8:0], 1'b0}   + {3'b0, u1b[7:0]};
 
 // U2 registers
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
@@ -546,15 +569,15 @@ reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
-    if (uv1 & ds_inblend & ~ds_store & (ua1 < 11'd768))
-        acc_mem[ua1[9:0]] <= ds_first ? {1'b0, u1[31:24], 1'b0, u1[23:16], 1'b0, u1[15:8], 1'b0, u1[7:0]} :
+    if (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768))
+        acc_mem[ua1b[9:0]] <= ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
                              (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
     {q0_2, q1_2, q2_2, q3_2} <= {t0[9:2], t1[9:2], t2[9:2], t3[9:2]};
-    u2 <= u1;
-    ua2 <= ua1;
-    uv2 <= uv1 & ds_store;
+    u2 <= u1b;
+    ua2 <= ua1b;
+    uv2 <= uv1b & ds_store;
     blended_2 <= ds_inblend & ~ds_first;
 end
 
@@ -564,22 +587,39 @@ wire [17:0] d0 = s0_2 * 8'd171;
 wire [17:0] d1 = s1_2 * 8'd171;
 wire [17:0] d2 = s2_2 * 8'd171;
 wire [17:0] d3 = s3_2 * 8'd171;
-wire [7:0] b0 = (n_blend == 3'h2) ? s0_2[8:1] : ((n_blend == 3'h4) ? q0_2 : d0[16:9]);
-wire [7:0] b1 = (n_blend == 3'h2) ? s1_2[8:1] : ((n_blend == 3'h4) ? q1_2 : d1[16:9]);
-wire [7:0] b2 = (n_blend == 3'h2) ? s2_2[8:1] : ((n_blend == 3'h4) ? q2_2 : d2[16:9]);
-wire [7:0] b3 = (n_blend == 3'h2) ? s3_2[8:1] : ((n_blend == 3'h4) ? q3_2 : d3[16:9]);
-wire [31:0] u2_out = blended_2 ? {b0, b1, b2, b3} : u2;
+// U3: registered averages, then the blend result selection and the line
+// buffer write
+reg [7:0] h0_3, h1_3, h2_3, h3_3, q0_3, q1_3, q2_3, q3_3, d0_3, d1_3, d2_3, d3_3;
+reg [31:0] u3;
+reg [10:0] ua3;
+reg uv3, blended_3;
 
 always @(posedge PCLK_CAP_i) begin
-    // U2 -> line buffer write
+    {h0_3, h1_3, h2_3, h3_3} <= {s0_2[8:1], s1_2[8:1], s2_2[8:1], s3_2[8:1]};
+    {q0_3, q1_3, q2_3, q3_3} <= {q0_2, q1_2, q2_2, q3_2};
+    {d0_3, d1_3, d2_3, d3_3} <= {d0[16:9], d1[16:9], d2[16:9], d3[16:9]};
+    u3 <= u2;
+    ua3 <= ua2;
+    uv3 <= uv2;
+    blended_3 <= blended_2;
+end
+
+wire [7:0] b0 = (n_blend == 3'h2) ? h0_3 : ((n_blend == 3'h4) ? q0_3 : d0_3);
+wire [7:0] b1 = (n_blend == 3'h2) ? h1_3 : ((n_blend == 3'h4) ? q1_3 : d1_3);
+wire [7:0] b2 = (n_blend == 3'h2) ? h2_3 : ((n_blend == 3'h4) ? q2_3 : d2_3);
+wire [7:0] b3 = (n_blend == 3'h2) ? h3_3 : ((n_blend == 3'h4) ? q3_3 : d3_3);
+wire [31:0] u3_out = blended_3 ? {b0, b1, b2, b3} : u3;
+
+always @(posedge PCLK_CAP_i) begin
+    // U3 -> line buffer write
     case (lb_layout)
-        2'h1: linebuf_wraddr_r <= {ypos_wraddr[2:0], ua2[9:0]};
-        2'h2: linebuf_wraddr_r <= {ypos_wraddr[3:0], ua2[8:0]};
-        2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua2};
-        default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua2};
+        2'h1: linebuf_wraddr_r <= {ypos_wraddr[2:0], ua3[9:0]};
+        2'h2: linebuf_wraddr_r <= {ypos_wraddr[3:0], ua3[8:0]};
+        2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua3};
+        default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua3};
     endcase
-    linebuf_wrdata <= lb422 ? u2_out : {8'h0, u2_out[31:8]};
-    linebuf_wren <= uv2;
+    linebuf_wrdata <= lb422 ? u3_out : {8'h0, u3_out[31:8]};
+    linebuf_wren <= uv3;
 end
 
 end
