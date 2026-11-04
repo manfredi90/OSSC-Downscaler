@@ -58,7 +58,7 @@ Supported inputs and outputs
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
 | 720x576p (50Hz)     | 288p / 576i | 312 lines per field (310–314, 15.5–15.7kHz) or 625 lines; optional flicker filter in 576i |
-| 480i                | 480i, or 240p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input"). PAL (576i) is still to be investigated |
+| 480i                | 480i, or 240p | passthrough, or each field shown as a progressive frame on the same scanlines ("480i input"). Also 576i -> 288p |
 
 * 240p: 260–264 lines per field (15.6–15.9kHz), 480i: 525 lines. 50Hz sources:
   288p (310–314 lines) and 576i (625 lines); the menu items named 240p / 480i
@@ -109,9 +109,7 @@ firmware's own sector, independent of the official profiles).
 Known issues and next steps
 ---------------------------
 
-* **PAL**: 576i -> 288p ("480i input") shows strong flicker on hardware
-  (480i -> 240p with the same source is stable). 576p input is new and not
-  tested on hardware yet.
+* No known issues at the moment.
 
 
 Building
