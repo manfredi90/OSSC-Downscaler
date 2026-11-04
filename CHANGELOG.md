@@ -10,8 +10,9 @@ Unreleased (test build 1.1.4)
   6), 240p and 480i output.
 
 ### Internal
-- Ibex instruction cache disabled (frees ~2400 logic elements and 6 M9K
-  blocks; the code runs from flash with the prefetch buffer only).
+- Ibex instruction cache disabled: the code runs from flash with the
+  prefetch buffer only. FPGA logic use 94% -> 86% (with the 1080p Wide
+  filter included), M9K blocks 56 -> 55 of 56.
 
 v1.1
 ----
