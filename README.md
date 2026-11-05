@@ -53,7 +53,7 @@ Supported inputs and outputs
 
 | Input (~60Hz unless noted) | Output | Notes |
 |---------------------|--------|-------|
-| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending). **Wide (216p)**: 216 lines centered (5 input lines each) and the 1600 pixels in the middle (~8% cropped per side, like a TV's overscan), 400 pixels (4 averaged): more detail than Wide (180p) |
+| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending). **Wide (216p)**: 216 lines centered (5 input lines each) with the whole width, 480 pixels (4 averaged), squeezed horizontally: more detail than Wide (180p), aspect ratio not kept |
 | 1280x960p           | 240p / 480i | VESA standard timing only (1800x1000, 60kHz, 108MHz). 4 lines per output line: exactly 240 lines, ideal for 320x240 content scaled x4. 640 pixels (2 averaged) |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
@@ -99,8 +99,8 @@ Downscaler menu
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |
 | Width | 78%–107% | picture width, 100% = standard width (80% of the line) |
-| H. position | ±40 | |
-| V. position | ±12 | |
+| H. position | ±40 | also for 15kHz sources in passthrough (240p, 480i, 480i -> 240p): moves the picture without changing it; past the porch limits the edges are cropped (left: one more line of delay) |
+| V. position | ±12 | also for passthrough; moving down past the front porch crops the bottom lines |
 | Diagnostics | | `Rnnn`: output resyncs since boot (should stay constant while a mode runs); `Paaaa/bbbb`: measured / expected input frame period (low bits; must be equal) |
 
 Settings are saved with **Settings opt. → Save settings** (stored in this

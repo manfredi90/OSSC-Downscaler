@@ -250,14 +250,14 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_1080p60,    1125,  366, 2730, 262, 5, 6, 3,  0, 0,  36, 2, 3, 0, 0, 0, "1080W>180p", 0, 0, 0, 1, 0, 1 },
     { HDMI_1080p60,    1125,  366, 2730, 525, 5, 6, 3,  0, 0,  36, 2, 3, 1, 5, 3, "1080W>480i", 0, 0, 0, 1, 0, 1 },
     // 1080p "Wide (216p)": 5 lines per output line, 1080 -> 216 rows (90% of
-    // the field height), and the 1600 pixels in the middle (160 cropped per
-    // side) to keep the 16:9 geometry, 4 ADC samples averaged: 400 pixels,
-    // 6 clocks per pixel. Each row takes 74us of input (more than an output
-    // line): ~31 rows of read/write drift, 40 line buffer slots.
+    // the field height) with the whole 1920 pixel width (the picture is
+    // squeezed horizontally), 4 ADC samples averaged: 480 pixels, 5 clocks
+    // per pixel. Each row takes 74us of input (more than an output line):
+    // ~31 rows of read/write drift, 34 line buffer slots.
     //   240p: lines 1-4 of each group of 5 averaged (or line 2); 480i: field
     //   A = lines 0-2, field B = lines 2-4 (or lines 1 / 3)
-    { HDMI_1080p60,    1125,  550, 2730, 262, 4, 5, 3,  0, 0, 160, 3, 2, 0, 0, 0, "1080>216p",  0, 0, 0, 1, 0, 1, 0, 216 },
-    { HDMI_1080p60,    1125,  550, 2730, 525, 4, 5, 3,  0, 0, 160, 3, 2, 1, 0, 0, "1080>216i",  0, 0, 0, 1, 0, 1, 0, 216 },
+    { HDMI_1080p60,    1125,  550, 2730, 262, 4, 4, 3,  0, 0,   0, 3, 2, 0, 0, 0, "1080>216p",  0, 0, 0, 1, 0, 1, 0, 216 },
+    { HDMI_1080p60,    1125,  550, 2730, 525, 4, 4, 3,  0, 0,   0, 3, 2, 1, 0, 0, "1080>216i",  0, 0, 0, 1, 0, 1, 0, 216 },
     // 1080p60 "4:1 overscan": the 1708x960 window in the middle (60 lines and
     // 106 pixels cropped per side, ~89% of the picture like the overscan of a
     // TV), 4 lines per output line, 2 ADC samples averaged per stored pixel
@@ -842,6 +842,84 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     return 0;
 }
 
+// Passthrough (15kHz sources): "H. position" / "V. position" move the active
+// window relative to the output syncs; the line rate, the number of lines and
+// the pixels are unchanged.
+//  - right: later DE (longer back porch), up to the front porch limit, then
+//    the right side is cropped
+//  - left: earlier DE, down to the back porch limit, then the left side is
+//    cropped
+//  The passthrough output already runs one line behind the input (frame
+//  change detection), and the second 480i field half a line more, so up to
+//  +-40 pixels are read after they are written and before the 2-line buffer
+//  overwrites them.
+//  - down / up: the output frame starts N lines earlier / later than the
+//    input (framesync) and the active lines start N lines later / earlier
+//    after the vsync, so that the line buffer timing is the same; past the
+//    front porch limit the bottom lines are cropped
+static void ds_pt_position(avconfig_t *cc, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
+    int rpt = vm_conf->x_rpt+1;
+    int hpos = cc->ds_hpos ? ((int)cc->ds_hpos - SIGNED_NUMVAL_ZERO) : 0;
+    int vpos = cc->ds_vpos ? ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO) : 0;
+    int h_total = vm_out->timings.h_total;
+    int sync = vm_out->timings.h_synclen;
+    int bp = vm_out->timings.h_backporch;
+    int act = vm_out->timings.h_active;
+    int bp_lim = (h_total*40 + 500)/1000;       // >= 2.5us
+    int fp_lim = (h_total*10 + 500)/1000;       // >= 0.6us
+    int field_lines = vm_out->timings.v_total >> vm_out->timings.interlaced;
+    int vbp = vm_out->timings.v_backporch;
+    int vact = vm_out->timings.v_active;
+    int vsync = vm_out->timings.v_synclen;
+    int delay;
+
+    if (!hpos && !vpos)
+        return;
+
+    if (hpos > 0) {
+        int nbp = bp + hpos*rpt;
+        int over = (sync + nbp + act) - (h_total - fp_lim);
+        if (nbp > 1023)
+            nbp = 1023;     // 10-bit register field
+        if (over > 0) {
+            int c = (over + rpt - 1)/rpt;   // whole pixels cropped on the right
+            act -= c*rpt;
+            vm_conf->x_size = (vm_conf->x_size > c*rpt) ? (vm_conf->x_size - c*rpt) : 0;
+        }
+        bp = nbp;
+    } else if (hpos < 0) {
+        int nbp = bp + hpos*rpt;
+        if (nbp < bp_lim) {
+            int c = (bp_lim - nbp + rpt - 1)/rpt;   // whole pixels cropped on the left
+            if (c > 255 - vm_conf->x_start_lb)
+                c = 255 - vm_conf->x_start_lb;
+            vm_conf->x_start_lb += c;
+            act -= c*rpt;
+            vm_conf->x_size = (vm_conf->x_size > c*rpt) ? (vm_conf->x_size - c*rpt) : 0;
+            nbp += c*rpt;
+        }
+        bp = nbp;
+    }
+    vm_out->timings.h_backporch = bp;
+    vm_out->timings.h_active = act;
+
+    // vertical: back porch >= 3 lines, front porch >= 1 line
+    if (vbp + vpos < 3)
+        vpos = 3 - vbp;
+    vbp += vpos;
+    if (vsync + vbp + vact > field_lines - 1) {
+        int c = (vsync + vbp + vact) - (field_lines - 1);
+        vact -= c;
+        vm_conf->y_size = (vm_conf->y_size > c) ? (vm_conf->y_size - c) : 0;
+    }
+    vm_out->timings.v_backporch = vbp;
+    vm_out->timings.v_active = vact;
+
+    // output frame start after the input frame start, in lines
+    delay = -vpos;
+    vm_conf->framesync_line = (delay > 0) ? (field_lines - delay) : -delay;
+}
+
 int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf)
 {
     int i, diff_lines, diff_v_hz_x100, mindiff_id=0, mindiff_lines=1000, mindiff_v_hz_x100=10000, x_rpt_decr=0, skip_hv_mult=0;
@@ -1230,6 +1308,9 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     if ((mindiff_lm == MODE_PT) && vm_in->timings.interlaced && cc->ds_i2p &&
         ((mode_preset->group == GROUP_480I) || (mode_preset->group == GROUP_576I)))
         vm_conf->ds_i2p = 1;
+
+    if (mindiff_lm == MODE_PT)
+        ds_pt_position(cc, vm_out, vm_conf);
 
     if (vm_out->vic == HDMI_Unknown)
         vm_out->vic = cc->default_vic;
