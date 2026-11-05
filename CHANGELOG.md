@@ -1,21 +1,20 @@
 Changelog
 =========
 
-Unreleased (test builds 1.1.4–1.1.6)
-------------------------------------
+v1.2
+----
 
 ### New
-- 576p input (50Hz, 1.1.6): 288p (310–314 lines, 15.5–15.7kHz) and 576i
-  output, every source pixel sampled as 480p, optional flicker filter in
-  576i. Verified on hardware.
-- 576i -> 288p ("480i input" set to 240p) verified with a PS2.
 - 1080p Wide (180p): the whole 16:9 picture letterboxed, 1848x1080 -> 308x180
   (6x6 pixel average; with line blending the 4 middle lines of each group of
-  6), 240p and 480i output.
+  6), 240p and 480i output. "HD format" now offers Wide for 1080p too.
+- 576p input (50Hz): 288p (310–314 lines, 15.5–15.7kHz) and 576i output,
+  every source pixel sampled as for 480p, optional flicker filter in 576i.
+- 576i -> 288p ("480i input" set to 240p) verified on hardware (PS2).
 
 ### Internal
-- 1.1.4 only: Ibex instruction cache disabled as a test (FPGA logic 94% ->
-  86%), but some menu functions took seconds; enabled again in 1.1.5.
+- 6-sample horizontal box filter and groups of up to 6 input lines in the
+  FPGA line buffer.
 
 
 v1.1

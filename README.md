@@ -110,6 +110,7 @@ Known issues and next steps
 ---------------------------
 
 * No known issues at the moment.
+* Planned: 1280x960 input (VESA standard timing), 720p and 1080p at 50Hz.
 
 
 Building
