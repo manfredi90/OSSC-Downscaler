@@ -183,6 +183,8 @@ typedef struct {
     uint8_t wide;
     // 50Hz source, 288p (310-314 lines) / 576i (625 lines) output
     uint8_t pal;
+    // stored rows per field when not the full 240 / 288 (0 = default)
+    uint16_t rows;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -258,6 +260,22 @@ static const ds_mode_t ds_modes[] = {
     // 1080p center 4:3: the 1280x960 window, 640 stored pixels, 3 clocks per pixel
     { HDMI_1080p60,    1125, 1100, 2400, 262, 3, 2, 3,  0, 60, 320, 1, 1, 0, 0, 0, "1080 4:3p",  0, 0, 0, 1 },
     { HDMI_1080p60,    1125, 1100, 2400, 525, 3, 2, 3,  0, 60, 320, 1, 1, 1, 3, 2, "1080 4:3i",  0, 0, 0, 1 },
+    // 1280x960 (VESA DMT timing, 1800x1000, 108MHz): 4 lines per output line
+    // (exactly 240 rows: 320x240 content scaled x4), 2 ADC samples averaged
+    // per stored pixel, 640 pixels, 3 clocks per pixel; 480i: field A = lines
+    // 0-1, field B = lines 2-3 of each group
+    { HDMI_Unknown,    1000,  900, 2400, 262, 3, 2, 3,  0, 0,   0, 0, 1, 0, 0, 0, "960p>240p",  0, 0, 0, 1 },
+    { HDMI_Unknown,    1000,  900, 2400, 525, 3, 2, 3,  0, 0,   0, 0, 1, 1, 3, 2, "960p>480i",  0, 0, 0, 1 },
+    // 1080p50: 4 lines per output line, the whole 1080 lines -> 270 rows of
+    // the 288 line field. Each row takes 71us of input, more than an output
+    // line (64us): ~27 rows of read/write drift, so the line is narrower than
+    // at 60Hz: 4 ADC samples averaged per stored pixel. Full 16:9: 480
+    // pixels, 5 clocks per pixel; Center 4:3: the 1440 pixels in the middle,
+    // 360 pixels, 7 clocks per pixel.
+    { HDMI_1080p50,    1125,  660, 2700, 312, 3, 4, 3,  0, 0,   0, 0, 2, 0, 0, 0, "1080p>288p", 0, 0, 0, 1, 0, 0, 1, 270 },
+    { HDMI_1080p50,    1125,  660, 2700, 625, 3, 4, 3,  0, 0,   0, 0, 2, 1, 3, 2, "1080p>576i", 0, 0, 0, 1, 0, 0, 1, 270 },
+    { HDMI_1080p50,    1125,  660, 2700, 312, 3, 6, 3,  0, 0, 240, 1, 2, 0, 0, 0, "1080 4:3p",  0, 0, 0, 1, 0, 0, 1, 270 },
+    { HDMI_1080p50,    1125,  660, 2700, 625, 3, 6, 3,  0, 0, 240, 1, 2, 1, 3, 2, "1080 4:3i",  0, 0, 0, 1, 0, 0, 1, 270 },
     // 576p50: 720 pixels (864/line, 27MHz), 3 clocks per pixel, RGB 4:4:4 as
     // 480p; 288p (310-314 lines, 15.5-15.7kHz) or 576i (625 lines)
     { HDMI_576p50,      625,  864, 2700, 312, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "576p>288pF", 0, 0, 0, 1, 1, 0, 1 },
@@ -286,7 +304,7 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_ACTIVE_PAL 288
 // active lines per output field, and stored rows (Wide: 180 of them)
 #define DS_OUT_V_FIELD_ACT(m) ((m)->pal ? DS_OUT_V_ACTIVE_PAL : DS_OUT_V_ACTIVE)
-#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : DS_OUT_V_FIELD_ACT(m))
+#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : ((m)->rows ? (m)->rows : DS_OUT_V_FIELD_ACT(m)))
 // output lines per frame in 480i / 576i
 #define DS_OUT_ILACE_LINES(m) ((m)->pal ? 625 : 525)
 // 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
@@ -304,6 +322,19 @@ static uint16_t ds_hskip1(const ds_mode_t *m) {
 
 static uint8_t ds_mode_sampling(const ds_mode_t *m) {
     return m->t0_auto ? 1 : 0;
+}
+
+// Row for this source preset: by VIC, or by total lines for presets without
+// one (1280x960)
+static int ds_row_match(const ds_mode_t *m, mode_data_t *preset) {
+    if (m->vic != preset->vic)
+        return 0;
+    return (m->vic != HDMI_Unknown) || (preset->timings.v_total == m->in_v_total);
+}
+
+// "HD format" applies to these sources
+static int ds_hd_vic(HDMI_Video_Type vic) {
+    return (vic == HDMI_720p60) || (vic == HDMI_1080p60) || (vic == HDMI_1080p50);
 }
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
@@ -326,8 +357,10 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         pal = 1;
     else
         return NULL;
-    // "HD format" (720p and 1080p)
+    // "HD format" (720p and 1080p; no Wide at 1080p50: Full 16:9)
     ar = cc->ds_720p_ar;
+    if ((preset->vic == HDMI_1080p50) && (ar == 2))
+        ar = 0;
 
     if (cc->ds_480i)
         want[npass++] = 1;
@@ -340,17 +373,17 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         // selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
+                if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
                     (ds_modes[i].ilace == want[pass]) &&
-                    ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar)))
+                    (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar)))
                     return &ds_modes[i];
             }
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-            if ((ds_modes[i].vic == preset->vic) && (ds_modes[i].pal == pal) &&
+            if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) &&
                 ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
-                ((ds_modes[i].vic != HDMI_720p60 && ds_modes[i].vic != HDMI_1080p60) || (ds_modes[i].ar43 == ar))) {
+                (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar))) {
                 if (!!ds_modes[i].hfilt == want_hfilt)
                     return &ds_modes[i];
                 if (!match)

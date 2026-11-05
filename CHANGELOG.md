@@ -1,6 +1,15 @@
 Changelog
 =========
 
+Unreleased (test build 1.2.1)
+-----------------------------
+
+### New
+- 1280x960 input (60Hz, VESA standard timing 1800x1000): 240p and 480i,
+  4 lines per output line (exactly 240 rows), 640 pixels.
+- 1080p50 input: 288p and 576i, all 1080 lines -> 270 rows. Full 16:9 (480
+  pixels) and Center 4:3 (1440x1080 window, 360 pixels).
+
 v1.2
 ----
 
