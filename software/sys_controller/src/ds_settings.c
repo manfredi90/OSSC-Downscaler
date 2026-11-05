@@ -94,7 +94,7 @@ int ds_settings_load() {
         tc.ds_flicker = 0;
     if (tc.s480p_mode > 2)
         tc.s480p_mode = 0;
-    if (tc.ds_720p_ar > 2)
+    if (tc.ds_720p_ar > 3)
         tc.ds_720p_ar = 0;
     memcpy(&ts, &blob.ts, sizeof(settings_t));
     ts.phase_hotkey_enable = 0;

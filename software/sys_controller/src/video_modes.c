@@ -163,7 +163,7 @@ typedef struct {
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
     uint8_t v_start;            // first line of the first group (before "Line phase")
     uint16_t in_crop;           // source pixels cropped on each side
-    uint8_t ar43;               // 720p format: 0 = 16:9, 1 = center 4:3, 2 = wide
+    uint8_t ar43;               // HD format: 0 = 16:9, 1 = center 4:3, 2 = wide (180p), 3 = wide (216p)
     uint8_t hfilt;              // ADC samples averaged per stored sample: 0 = 1, 1 = 2, 2 = 4, 3 = 6
     uint8_t ilace;              // 480i output: one field per input frame
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
@@ -249,6 +249,15 @@ static const ds_mode_t ds_modes[] = {
     //   (averaged, or lines 1 / 4 without line blending)
     { HDMI_1080p60,    1125,  366, 2730, 262, 5, 6, 3,  0, 0,  36, 2, 3, 0, 0, 0, "1080W>180p", 0, 0, 0, 1, 0, 1 },
     { HDMI_1080p60,    1125,  366, 2730, 525, 5, 6, 3,  0, 0,  36, 2, 3, 1, 5, 3, "1080W>480i", 0, 0, 0, 1, 0, 1 },
+    // 1080p "Wide (216p)": 5 lines per output line, 1080 -> 216 rows (90% of
+    // the field height), and the 1600 pixels in the middle (160 cropped per
+    // side) to keep the 16:9 geometry, 4 ADC samples averaged: 400 pixels,
+    // 6 clocks per pixel. Each row takes 74us of input (more than an output
+    // line): ~31 rows of read/write drift, 40 line buffer slots.
+    //   240p: lines 1-4 of each group of 5 averaged (or line 2); 480i: field
+    //   A = lines 0-2, field B = lines 2-4 (or lines 1 / 3)
+    { HDMI_1080p60,    1125,  550, 2730, 262, 4, 5, 3,  0, 0, 160, 3, 2, 0, 0, 0, "1080>216p",  0, 0, 0, 1, 0, 1, 0, 216 },
+    { HDMI_1080p60,    1125,  550, 2730, 525, 4, 5, 3,  0, 0, 160, 3, 2, 1, 0, 0, "1080>216i",  0, 0, 0, 1, 0, 1, 0, 216 },
     // 1080p60 "4:1 overscan": the 1708x960 window in the middle (60 lines and
     // 106 pixels cropped per side, ~89% of the picture like the overscan of a
     // TV), 4 lines per output line, 2 ADC samples averaged per stored pixel
@@ -266,16 +275,6 @@ static const ds_mode_t ds_modes[] = {
     // 0-1, field B = lines 2-3 of each group
     { HDMI_Unknown,    1000,  900, 2400, 262, 3, 2, 3,  0, 0,   0, 0, 1, 0, 0, 0, "960p>240p",  0, 0, 0, 1 },
     { HDMI_Unknown,    1000,  900, 2400, 525, 3, 2, 3,  0, 0,   0, 0, 1, 1, 3, 2, "960p>480i",  0, 0, 0, 1 },
-    // 1080p50: 4 lines per output line, the whole 1080 lines -> 270 rows of
-    // the 288 line field. Each row takes 71us of input, more than an output
-    // line (64us): ~27 rows of read/write drift, so the line is narrower than
-    // at 60Hz: 4 ADC samples averaged per stored pixel. Full 16:9: 480
-    // pixels, 5 clocks per pixel; Center 4:3: the 1440 pixels in the middle,
-    // 360 pixels, 7 clocks per pixel.
-    { HDMI_1080p50,    1125,  660, 2700, 312, 3, 4, 3,  0, 0,   0, 0, 2, 0, 0, 0, "1080p>288p", 0, 0, 0, 1, 0, 0, 1, 270 },
-    { HDMI_1080p50,    1125,  660, 2700, 625, 3, 4, 3,  0, 0,   0, 0, 2, 1, 3, 2, "1080p>576i", 0, 0, 0, 1, 0, 0, 1, 270 },
-    { HDMI_1080p50,    1125,  660, 2700, 312, 3, 6, 3,  0, 0, 240, 1, 2, 0, 0, 0, "1080 4:3p",  0, 0, 0, 1, 0, 0, 1, 270 },
-    { HDMI_1080p50,    1125,  660, 2700, 625, 3, 6, 3,  0, 0, 240, 1, 2, 1, 3, 2, "1080 4:3i",  0, 0, 0, 1, 0, 0, 1, 270 },
     // 576p50: 720 pixels (864/line, 27MHz), 3 clocks per pixel, RGB 4:4:4 as
     // 480p; 288p (310-314 lines, 15.5-15.7kHz) or 576i (625 lines)
     { HDMI_576p50,      625,  864, 2700, 312, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "576p>288pF", 0, 0, 0, 1, 1, 0, 1 },
@@ -304,7 +303,7 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_ACTIVE_PAL 288
 // active lines per output field, and stored rows (Wide: 180 of them)
 #define DS_OUT_V_FIELD_ACT(m) ((m)->pal ? DS_OUT_V_ACTIVE_PAL : DS_OUT_V_ACTIVE)
-#define DS_OUT_V_ROWS(m)    ((m)->wide ? 180 : ((m)->rows ? (m)->rows : DS_OUT_V_FIELD_ACT(m)))
+#define DS_OUT_V_ROWS(m)    ((m)->rows ? (m)->rows : ((m)->wide ? 180 : DS_OUT_V_FIELD_ACT(m)))
 // output lines per frame in 480i / 576i
 #define DS_OUT_ILACE_LINES(m) ((m)->pal ? 625 : 525)
 // 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
@@ -334,7 +333,7 @@ static int ds_row_match(const ds_mode_t *m, mode_data_t *preset) {
 
 // "HD format" applies to these sources
 static int ds_hd_vic(HDMI_Video_Type vic) {
-    return (vic == HDMI_720p60) || (vic == HDMI_1080p60) || (vic == HDMI_1080p50);
+    return (vic == HDMI_720p60) || (vic == HDMI_1080p60);
 }
 
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
@@ -357,10 +356,10 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         pal = 1;
     else
         return NULL;
-    // "HD format" (720p and 1080p; no Wide at 1080p50: Full 16:9)
+    // "HD format" (720p and 1080p; Wide (216p) is 1080p only, 720p uses Wide (180p))
     ar = cc->ds_720p_ar;
-    if ((preset->vic == HDMI_1080p50) && (ar == 2))
-        ar = 0;
+    if ((preset->vic == HDMI_720p60) && (ar == 3))
+        ar = 2;
 
     if (cc->ds_480i)
         want[npass++] = 1;
@@ -427,7 +426,18 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n
         *n_a = *n_b = 1;
         return;
     }
-    if (m->vdec == 5) {
+    if (m->vdec == 4) {
+        // groups of 5 lines (1080p Wide 216p). 240p: lines 1-4 or line 2;
+        // 480i: A = lines 0-2, B = lines 2-4 (or lines 1 / 3)
+        if (m->ilace) {
+            *st_a = cc->ds_vblend_off ? 1 : 2;
+            *st_b = cc->ds_vblend_off ? 3 : 4;
+            *n_a = *n_b = cc->ds_vblend_off ? 1 : 3;
+        } else {
+            *st_a = *st_b = cc->ds_vblend_off ? 2 : 4;
+            *n_a = *n_b = cc->ds_vblend_off ? 1 : 4;
+        }
+    } else if (m->vdec == 5) {
         // groups of 6 lines (1080p Wide). 240p: the 4 middle lines (1-4) or
         // line 2; 480i: A = lines 0-2, B = lines 3-5 (or lines 1 / 4)
         if (m->ilace) {

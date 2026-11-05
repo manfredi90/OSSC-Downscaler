@@ -1,14 +1,16 @@
 Changelog
 =========
 
-Unreleased (test build 1.2.1)
------------------------------
+Unreleased (test builds 1.2.1, 1.2.2)
+-------------------------------------
 
 ### New
 - 1280x960 input (60Hz, VESA standard timing 1800x1000): 240p and 480i,
   4 lines per output line (exactly 240 rows), 640 pixels.
-- 1080p50 input: 288p and 576i, all 1080 lines -> 270 rows. Full 16:9 (480
-  pixels) and Center 4:3 (1440x1080 window, 360 pixels).
+- 1080p Wide (216p) (1.2.2): 1080 -> 216 lines (5 per output line) and the
+  1600 pixels in the middle, 400 pixels (4 averaged), 240p and 480i. New
+  "HD format" choice; for 720p it falls back to Wide (180p).
+- (1.2.1 only: 1080p50 input, removed in 1.2.2: too narrow at 50Hz.)
 
 v1.2
 ----

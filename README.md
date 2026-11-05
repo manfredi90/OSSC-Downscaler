@@ -53,8 +53,7 @@ Supported inputs and outputs
 
 | Input (~60Hz unless noted) | Output | Notes |
 |---------------------|--------|-------|
-| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending) |
-| 1920x1080p (50Hz)   | 288p / 576i | all 1080 lines -> 270 lines (4 per output line). **Full 16:9**: 480 pixels (4 averaged), squeezed to 4:3. **Center 4:3**: the 1440x1080 center window, 360 pixels. No Wide (not enough line buffer at 50Hz) |
+| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide (180p)**: whole 16:9 picture letterboxed, 180 lines centered, 6x6 pixel average (4 middle lines of 6 with line blending). **Wide (216p)**: 216 lines centered (5 input lines each) and the 1600 pixels in the middle (~8% cropped per side, like a TV's overscan), 400 pixels (4 averaged): more detail than Wide (180p) |
 | 1280x960p           | 240p / 480i | VESA standard timing only (1800x1000, 60kHz, 108MHz). 4 lines per output line: exactly 240 lines, ideal for 320x240 content scaled x4. 640 pixels (2 averaged) |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide (180p)** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
@@ -96,7 +95,7 @@ Downscaler menu
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
 | 480i input | Passthru, 240p | 480i sources: unchanged, or both fields shown on the same scanlines as 240p (no interlacing, the picture keeps the 240p look) |
 | 480i filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |
-| HD format | Full 16:9, Center 4:3, Wide (180p) | 720p and 1080p (1080p50: Full 16:9 or Center 4:3) |
+| HD format | Full 16:9, Center 4:3, Wide (180p), Wide (216p) | 720p and 1080p (Wide (216p): 1080p only, 720p uses Wide (180p)) |
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |
 | Width | 78%–107% | picture width, 100% = standard width (80% of the line) |
@@ -112,9 +111,10 @@ Known issues and next steps
 ---------------------------
 
 * No known issues at the moment.
-* 720p50 is not supported: at 50Hz each 720p output line spans more input
-  time than an output line lasts, and the line buffer cannot absorb the
-  drift (no frame buffer).
+* 50Hz HD sources (720p50, 1080p50) are not supported: at 50Hz the input
+  lines that make one output line take longer than the output line itself,
+  and the line buffer (no frame buffer) cannot absorb the drift at a useful
+  width. Use 60Hz.
 
 
 Building
