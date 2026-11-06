@@ -108,7 +108,6 @@ wire [4:0] ds_vflt_a = sl_config[20:16];
 wire [9:0] ds_lb_stride = sl_config3[9:0];  // line buffer layout 3: words per line
 wire [5:0] ds_lb_slots = sl_config3[15:10]; //   number of lines
 wire ds_lb_rgb = sl_config3[29];            //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
-wire ds_lb411 = sl_config3[30];             //   1 = YCbCr 4:1:1, 8 pixels in 3 words
 wire [12:0] ds_hofs = sl_config3[28:16];    // output H position at the input frame start
 wire [7:0] ds_resync_cnt;
 wire [9:0] ds_fperiod_lo;
@@ -556,7 +555,6 @@ scanconverter #(
     .lb_stride(ds_lb_stride),
     .lb_slots(ds_lb_slots),
     .lb_rgb(ds_lb_rgb),
-    .lb411(ds_lb411),
     .ds_hofs(ds_hofs),
     .ext_sync_mode(1'b0),
     .ext_frame_change_i(1'b0),

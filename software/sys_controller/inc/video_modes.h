@@ -188,7 +188,6 @@ typedef struct {
     uint16_t ds_lb_stride;  // line buffer layout 3 (YCbCr 4:2:2): words per line
     uint8_t ds_lb_slots;    //   number of lines
     uint8_t ds_lb_rgb;      //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
-    uint8_t ds_lb411;       //   1 = YCbCr 4:1:1, 8 pixels in 3 words
     uint8_t ds_i2p;         // 480i/576i input shown as 240p/288p
     uint8_t ds_vflt;        // 480p -> 480i flicker filter on
     uint8_t ds_vflt_bofs;   //   field B groups one line later

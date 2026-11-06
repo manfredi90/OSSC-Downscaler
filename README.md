@@ -53,9 +53,9 @@ Supported inputs and outputs
 
 | Input (~60Hz unless noted) | Output | Notes |
 |---------------------|--------|-------|
-| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide**: 216 lines centered (5 input lines each) with the whole width, 640 pixels (3 averaged, chroma 4:1:1), squeezed horizontally (aspect ratio not kept) |
+| 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide**: 216 lines centered (5 input lines each) with the whole width, 480 pixels (4 averaged), squeezed horizontally (aspect ratio not kept) |
 | 1280x960p           | 240p / 480i | VESA standard timing only (1800x1000, 60kHz, 108MHz). 4 lines per output line: exactly 240 lines, ideal for 320x240 content scaled x4. 640 pixels (2 averaged) |
-| 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide** (whole 16:9 picture letterboxed: 180 lines centered, 408 pixels: 3 averaged, chroma 4:1:1, 4 lines averaged) |
+| 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
 | 720x576p (50Hz)     | 288p / 576i | 312 lines per field (310–314, 15.5–15.7kHz) or 625 lines; optional flicker filter in 576i |

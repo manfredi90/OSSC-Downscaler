@@ -45,8 +45,7 @@ module linebuf_top (
     // 2 = 16 x 512 px (deep, for large read/write drift)
     input [1:0] lb_layout,
     // Horizontal box filter for oversampled input: 0 = off, 1 = average of 2
-    // ADC samples (h_skip=1), 2 = average of 4 (h_skip=3), 3 = average of 6
-    // (h_skip=5)
+    // ADC samples (h_skip=1), 2 = average of 4 (h_skip=3); 3 is not used
     input [1:0] ds_hfilt,
     // Vertical line selection. Input lines are grouped by (ds_vdec+1) starting
     // at line ds_vstart; in each group the line at position st (0..ds_vdec) is
@@ -75,12 +74,6 @@ module linebuf_top (
     input [9:0] lb_stride,
     input [5:0] lb_slots,
     input lb_rgb,
-    // YCbCr 4:1:1 (layout 3, not with lb_rgb): 8 pixels in 3 words {Y0..Y3},
-    // {Y4..Y7}, {Cb0-3, Cr0-3, Cb4-7, Cr4-7}; needs >= 2 output clocks per
-    // pixel (Y and chroma words read in turn) and 1 clock more read latency
-    input lb411,
-    // first output clock of each stored pixel (pixel repetition counter = 0)
-    input rd_first,
     input [12:0] lb_rd_base,
     output [7:0] R_linebuf,
     output [7:0] G_linebuf,
@@ -294,10 +287,6 @@ reg linebuf_wren;
 // of a non-integer output line period (e.g. 750 input lines -> 262).
 wire lbs = (lb_layout == 2'h3);     // runtime stride layout
 wire lb422 = lbs & ~lb_rgb;
-wire lb4_1 = lb422 & lb411;        // 4:1:1 (else 4:2:2)
-// 4:1:1 read: Y word on the first clock of a pixel, chroma word on the others
-wire [7:0] rx8 = xpos_lb[10:3];
-wire [9:0] rg3 = {1'b0, rx8, 1'b0} + {2'b0, rx8};      // 3 words per 8 pixels
 reg [12:0] linebuf_rdaddr;
 reg wr_x_ok;
 always @(*) begin
@@ -311,8 +300,7 @@ always @(*) begin
             wr_x_ok = (xpos_i[10:9] == 2'b00);
         end
         2'h3: begin
-            linebuf_rdaddr = lb_rd_base + (lb_rgb ? {2'h0, xpos_lb} :
-                                           (lb4_1 ? {3'h0, rg3} + (rd_first ? {12'h0, xpos_lb[2]} : 13'd2) : {3'h0, xpos_lb[10:1]}));
+            linebuf_rdaddr = lb_rd_base + (lb_rgb ? {2'h0, xpos_lb} : {3'h0, xpos_lb[10:1]});
             wr_x_ok = 1'b1;
         end
         default: begin
@@ -350,26 +338,8 @@ reg signed [17:0] o_rt, o_gt, o_bt;
 reg [23:0] o_raw1, o_raw2;
 reg [7:0] o_R, o_G, o_B;
 reg o_422_1;
-// 4:1:1: Y word captured 2 clocks after the first clock of the pixel, chroma
-// from the RAM output on the other clocks (held while a Y word comes out)
-reg [2:0] rd_xd1, rd_xd2, rd_xd3, rd_xd4;
-reg rd_f1, rd_f2, rd_f3;
-reg [7:0] y411;
-reg [31:0] c411;
-wire [31:0] c411_sel = rd_f3 ? c411 : q_r;
-wire [7:0] cb_src = lb4_1 ? (rd_xd4[2] ? c411_sel[15:8] : c411_sel[31:24]) : q_r[15:8];
-wire [7:0] cr_src = lb4_1 ? (rd_xd4[2] ? c411_sel[7:0] : c411_sel[23:16]) : q_r[7:0];
-reg [7:0] y411_lane;
-always @(*) begin
-    case (rd_xd3[1:0])
-        2'h0: y411_lane = q_r[31:24];
-        2'h1: y411_lane = q_r[23:16];
-        2'h2: y411_lane = q_r[15:8];
-        default: y411_lane = q_r[7:0];
-    endcase
-end
-wire signed [9:0] cb_s = $signed({2'b00, cb_src}) - 10'sd128;
-wire signed [9:0] cr_s = $signed({2'b00, cr_src}) - 10'sd128;
+wire signed [9:0] cb_s = $signed({2'b00, q_r[15:8]}) - 10'sd128;
+wire signed [9:0] cr_s = $signed({2'b00, q_r[7:0]}) - 10'sd128;
 wire signed [10:0] o_Rs = $signed({3'b000, o_Y}) + $signed(o_rt[17:8]);
 wire signed [10:0] o_Gs = $signed({3'b000, o_Y}) + $signed(o_gt[17:8]);
 wire signed [10:0] o_Bs = $signed({3'b000, o_Y}) + $signed(o_bt[17:8]);
@@ -380,18 +350,11 @@ endfunction
 
 always @(posedge PCLK_OUT_i) begin
     // pixel parity follows the read address through the RAM (2 clocks)
-    // RAM output register (1 clock), then the pixel position follows (3 clocks)
+    // RAM output register (1 clock), then the pixel position follows
     q_r <= linebuf_q;
     rd_x0_d <= {rd_x0_d[1:0], xpos_lb[0]};
-    {rd_xd4, rd_xd3, rd_xd2, rd_xd1} <= {rd_xd3, rd_xd2, rd_xd1, xpos_lb[2:0]};
-    {rd_f3, rd_f2, rd_f1} <= {rd_f2, rd_f1, rd_first};
-    if (rd_f3)
-        y411 <= y411_lane;
-    else
-        c411 <= q_r;
     // conversion stage 1: R = Y + 1.402 Cr, G = Y - 0.344 Cb - 0.714 Cr, B = Y + 1.772 Cb
-    // (4:1:1: one clock later, from the held Y)
-    o_Y <= lb4_1 ? y411 : (rd_x0_d[2] ? q_r[23:16] : q_r[31:24]);
+    o_Y <= rd_x0_d[2] ? q_r[23:16] : q_r[31:24];
     o_rt <= cr_s * 18'sd359;
     o_gt <= -(cb_s * 18'sd88) - (cr_s * 18'sd183);
     o_bt <= cb_s * 18'sd454;
@@ -453,11 +416,6 @@ reg [10:0] x_a, x_b;
 reg v_a, v_b;
 reg [7:0] Rr_b, Gr_b, Br_b;
 reg [8:0] s2R_b, s2G_b, s2B_b, s2R_cd, s2G_cd, s2B_cd;
-// 3-sample box (hfilt 3): sum of the 3 samples before the selected one
-// (k-3..k-1: a fixed 1-sample shift), registered, then x171/512 (~1/3) in a
-// registered multiplier, so that it has the same latency as the other filters
-reg [9:0] s3R, s3G, s3B;
-reg [16:0] m3R, m3G, m3B;
 wire [9:0] s4R = {1'b0, s2R_b} + {1'b0, s2R_cd};
 wire [9:0] s4G = {1'b0, s2G_b} + {1'b0, s2G_cd};
 wire [9:0] s4B = {1'b0, s2B_b} + {1'b0, s2B_cd};
@@ -466,7 +424,6 @@ always @(*) begin
     case (ds_hfilt)
         2'h1: {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
         2'h2: {R_h, G_h, B_h} = {s4R[9:2], s4G[9:2], s4B[9:2]};
-        2'h3: {R_h, G_h, B_h} = {m3R[16:9], m3G[16:9], m3B[16:9]};
         default: {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
     endcase
 end
@@ -497,12 +454,6 @@ always @(posedge PCLK_CAP_i) begin
     s2G_cd <= {1'b0, G_c} + {1'b0, G_d};
     s2B_cd <= {1'b0, B_c} + {1'b0, B_d};
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
-    s3R <= {2'b0, R_a} + {2'b0, R_b} + {2'b0, R_c};
-    s3G <= {2'b0, G_a} + {2'b0, G_b} + {2'b0, G_c};
-    s3B <= {2'b0, B_a} + {2'b0, B_b} + {2'b0, B_c};
-    m3R <= s3R * 8'd171;
-    m3G <= s3G * 8'd171;
-    m3B <= s3B * 8'd171;
     x_b <= x_a;
     v_b <= v_a;
 
@@ -575,17 +526,6 @@ wire [7:0] c2_Cb = cy_Cb[15:8];
 wire [7:0] c2_Cr = cy_Cr[15:8];
 wire [8:0] c2_Cbs = {1'b0, p_Cb0} + {1'b0, c2_Cb};
 wire [8:0] c2_Crs = {1'b0, p_Cr0} + {1'b0, c2_Cr};
-// 4:1:1: Y of the first 3 pixels of 4, chroma sums over 4 pixels, chroma of
-// pixels 0-3 of 8; the chroma word goes out one clock after the 8th pixel
-reg [7:0] p4_Y0, p4_Y1, p4_Y2, p4_CbA, p4_CrA;
-reg [9:0] p4_Cb, p4_Cr;
-reg pend_c;
-reg [31:0] pend_w;
-reg [9:0] pend_a;
-wire [9:0] c4_Cb = p4_Cb + {2'b0, c2_Cb};
-wire [9:0] c4_Cr = p4_Cr + {2'b0, c2_Cr};
-wire [9:0] wg3 = {1'b0, x_c1[10:3], 1'b0} + {2'b0, x_c1[10:3]};   // 3 words per 8 pixels
-wire [9:0] wy_a = wg3 + {9'h0, x_c1[2]};
 
 // storage unit stream: 4 x 8-bit channels
 reg [31:0] u0, u1;
@@ -622,28 +562,7 @@ always @(posedge PCLK_CAP_i) begin
     v_c1 <= v_c0;
 
     // C2 / U0: storage unit
-    if (lb4_1) begin
-        if (v_c1) begin
-            case (x_c1[1:0])
-                2'h0: {p4_Y0, p4_Cb, p4_Cr} <= {c2_Y, 2'b0, c2_Cb, 2'b0, c2_Cr};
-                2'h1: {p4_Y1, p4_Cb, p4_Cr} <= {c2_Y, c4_Cb, c4_Cr};
-                2'h2: {p4_Y2, p4_Cb, p4_Cr} <= {c2_Y, c4_Cb, c4_Cr};
-                default: if (~x_c1[2]) {p4_CbA, p4_CrA} <= {c4_Cb[9:2], c4_Cr[9:2]};
-            endcase
-        end
-        if (pend_c) begin
-            u0 <= pend_w;
-            ua0 <= {1'b0, pend_a};
-            uv0 <= (pend_a < lb_stride);
-        end else begin
-            u0 <= {p4_Y0, p4_Y1, p4_Y2, c2_Y};
-            ua0 <= {1'b0, wy_a};
-            uv0 <= v_c1 & (x_c1[1:0] == 2'h3) & (wy_a < lb_stride);
-        end
-        pend_c <= v_c1 & (x_c1[2:0] == 3'h7);
-        pend_w <= {p4_CbA, p4_CrA, c4_Cb[9:2], c4_Cr[9:2]};
-        pend_a <= wg3 + 10'd2;
-    end else if (lb422) begin
+    if (lb422) begin
         if (v_c1 & ~x_c1[0])
             {p_Y0, p_Cb0, p_Cr0} <= {c2_Y, c2_Cb, c2_Cr};
         u0 <= {p_Y0, c2_Y, c2_Cbs[8:1], c2_Crs[8:1]};
