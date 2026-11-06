@@ -337,11 +337,12 @@ linebuf linebuf_rgb (
 );
 
 // ---------------------------------------------------------------------------
-// Read side (output clock): layout 3 is converted back to RGB. Both paths
-// have the same latency (2 clocks after the RAM output); see PP_LINEBUF_LENGTH
-// in scanconverter.
+// Read side (output clock): the RAM output is registered (q_r), then layout 3
+// is converted back to RGB. All paths have the same latency (3 clocks after
+// the RAM output); see PP_LINEBUF_LENGTH in scanconverter.
 // ---------------------------------------------------------------------------
-reg [1:0] rd_x0_d;
+reg [2:0] rd_x0_d;
+reg [31:0] q_r;
 reg rd_x0;
 reg [7:0] o_Y;
 reg signed [9:0] o_cb, o_cr;
@@ -351,20 +352,20 @@ reg [7:0] o_R, o_G, o_B;
 reg o_422_1;
 // 4:1:1: Y word captured 2 clocks after the first clock of the pixel, chroma
 // from the RAM output on the other clocks (held while a Y word comes out)
-reg [2:0] rd_xd1, rd_xd2, rd_xd3;
-reg rd_f1, rd_f2;
+reg [2:0] rd_xd1, rd_xd2, rd_xd3, rd_xd4;
+reg rd_f1, rd_f2, rd_f3;
 reg [7:0] y411;
 reg [31:0] c411;
-wire [31:0] c411_sel = rd_f2 ? c411 : linebuf_q;
-wire [7:0] cb_src = lb4_1 ? (rd_xd3[2] ? c411_sel[15:8] : c411_sel[31:24]) : linebuf_q[15:8];
-wire [7:0] cr_src = lb4_1 ? (rd_xd3[2] ? c411_sel[7:0] : c411_sel[23:16]) : linebuf_q[7:0];
+wire [31:0] c411_sel = rd_f3 ? c411 : q_r;
+wire [7:0] cb_src = lb4_1 ? (rd_xd4[2] ? c411_sel[15:8] : c411_sel[31:24]) : q_r[15:8];
+wire [7:0] cr_src = lb4_1 ? (rd_xd4[2] ? c411_sel[7:0] : c411_sel[23:16]) : q_r[7:0];
 reg [7:0] y411_lane;
 always @(*) begin
-    case (rd_xd2[1:0])
-        2'h0: y411_lane = linebuf_q[31:24];
-        2'h1: y411_lane = linebuf_q[23:16];
-        2'h2: y411_lane = linebuf_q[15:8];
-        default: y411_lane = linebuf_q[7:0];
+    case (rd_xd3[1:0])
+        2'h0: y411_lane = q_r[31:24];
+        2'h1: y411_lane = q_r[23:16];
+        2'h2: y411_lane = q_r[15:8];
+        default: y411_lane = q_r[7:0];
     endcase
 end
 wire signed [9:0] cb_s = $signed({2'b00, cb_src}) - 10'sd128;
@@ -379,20 +380,22 @@ endfunction
 
 always @(posedge PCLK_OUT_i) begin
     // pixel parity follows the read address through the RAM (2 clocks)
-    rd_x0_d <= {rd_x0_d[0], xpos_lb[0]};
-    {rd_xd3, rd_xd2, rd_xd1} <= {rd_xd2, rd_xd1, xpos_lb[2:0]};
-    {rd_f2, rd_f1} <= {rd_f1, rd_first};
-    if (rd_f2)
+    // RAM output register (1 clock), then the pixel position follows (3 clocks)
+    q_r <= linebuf_q;
+    rd_x0_d <= {rd_x0_d[1:0], xpos_lb[0]};
+    {rd_xd4, rd_xd3, rd_xd2, rd_xd1} <= {rd_xd3, rd_xd2, rd_xd1, xpos_lb[2:0]};
+    {rd_f3, rd_f2, rd_f1} <= {rd_f2, rd_f1, rd_first};
+    if (rd_f3)
         y411 <= y411_lane;
     else
-        c411 <= linebuf_q;
+        c411 <= q_r;
     // conversion stage 1: R = Y + 1.402 Cr, G = Y - 0.344 Cb - 0.714 Cr, B = Y + 1.772 Cb
     // (4:1:1: one clock later, from the held Y)
-    o_Y <= lb4_1 ? y411 : (rd_x0_d[1] ? linebuf_q[23:16] : linebuf_q[31:24]);
+    o_Y <= lb4_1 ? y411 : (rd_x0_d[2] ? q_r[23:16] : q_r[31:24]);
     o_rt <= cr_s * 18'sd359;
     o_gt <= -(cb_s * 18'sd88) - (cr_s * 18'sd183);
     o_bt <= cb_s * 18'sd454;
-    o_raw1 <= linebuf_q[23:0];
+    o_raw1 <= q_r[23:0];
     o_422_1 <= lb422;
     // conversion stage 2
     if (o_422_1)
