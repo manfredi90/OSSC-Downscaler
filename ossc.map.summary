@@ -1,0 +1,14 @@
+Analysis & Synthesis Status : Successful - Fri Nov  6 13:34:50 2026
+Quartus Prime Version : 21.1.1 Build 850 06/23/2022 SJ Lite Edition
+Revision Name : ossc
+Top-level Entity Name : ossc
+Family : Cyclone IV E
+Total logic elements : 16,303
+    Total combinational functions : 12,959
+    Dedicated logic registers : 6,943
+Total registers : 6943
+Total pins : 81
+Total virtual pins : 0
+Total memory bits : 456,704
+Embedded Multiplier 9-bit elements : 28
+Total PLLs : 1
