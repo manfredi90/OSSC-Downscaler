@@ -1,28 +1,31 @@
 Changelog
 =========
 
-Unreleased (test builds 1.2.1–1.2.5)
--------------------------------------
+v1.3
+----
 
 ### New
 - 1280x960 input (60Hz, VESA standard timing 1800x1000): 240p and 480i,
-  4 lines per output line (exactly 240 rows), 640 pixels.
+  4 lines per output line (exactly 240 rows: ideal for 320x240 content
+  scaled x4), 640 pixels.
 - 1080p Wide is now 216p: 1080 -> 216 lines (5 per output line) with the
   whole width, 480 pixels (4 averaged), squeezed horizontally (aspect ratio
-  not kept). It replaces the 1080p 180p mode; "HD format" has one Wide
-  choice again (720p: 180p, 1080p: 216p).
-- (1.2.4 only: YCbCr 4:1:1 line buffer for the Wide modes, more pixels but
-  lower picture quality; back to 4:2:2 in 1.2.5.)
-- H. / V. position also for 15kHz sources in passthrough (1.2.3). Moving
-  down keeps the source's vertical front porch (1.2.4: some TVs lost sync).
+  not kept). More detail than the 180p mode it replaces; "HD format" has one
+  Wide choice (720p: 180p, 1080p: 216p).
+- H. / V. position also for 15kHz sources in passthrough (240p, 480i,
+  480i -> 240p): the picture moves without being changed; past the porch
+  limits the edges are cropped (moving down keeps the source's vertical
+  front porch, so the display keeps its sync).
 - Menu: "480i input" is now "15kHz input", "480i filter" is now "Flicker
   filter".
 
 ### Fixed
 - 4-line blending was 1 low on odd values (rounding).
 
-### Removed
-- 1.2.1 only: 1080p50 input (too narrow at 50Hz).
+### Internal
+- Line buffer RAM output registered (output clock timing margin).
+- README: HDMI-to-VGA DAC compatibility note; 50Hz HD sources not supported.
+
 
 v1.2
 ----

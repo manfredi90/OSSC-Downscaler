@@ -105,7 +105,7 @@ Downscaler menu
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |
 | Width | 78%–107% | picture width, 100% = standard width (80% of the line) |
-| H. position | ±40 | also for 15kHz sources in passthrough (240p, 480i, 480i -> 240p): moves the picture without changing it; past the porch limits the edges are cropped (left: one more line of delay) |
+| H. position | ±40 | also for 15kHz sources in passthrough (240p, 480i, 480i -> 240p): moves the picture without changing it; past the porch limits the edges are cropped |
 | V. position | ±12 | also for passthrough; moving down keeps the source's vertical front porch and crops the bottom lines |
 | Diagnostics | | `Rnnn`: output resyncs since boot (should stay constant while a mode runs); `Paaaa/bbbb`: measured / expected input frame period (low bits; must be equal) |
 
@@ -113,8 +113,8 @@ Settings are saved with **Settings opt. → Save settings** (stored in this
 firmware's own sector, independent of the official profiles).
 
 
-Known issues and next steps
----------------------------
+Known issues and limitations
+----------------------------
 
 * No known issues at the moment.
 * 50Hz HD sources (720p50, 1080p50) are not supported: at 50Hz the input
