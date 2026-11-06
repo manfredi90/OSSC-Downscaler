@@ -157,14 +157,14 @@ typedef struct {
     uint16_t smp_h_total;       // stored samples per input line (ADC: x(hfilt+1))
     uint16_t out_h_total;
     uint16_t out_v_total;
-    uint8_t vdec;               // stored line = every (vdec+1)th input line (1..5)
+    uint8_t vdec;               // stored line = every (vdec+1)th input line (1..4)
     uint8_t x_rpt;              // each sample lasts (x_rpt+1) output clocks
     uint8_t lb_layout;          // 1 = 8x1024, 2 = 16x512, 3 = runtime stride (full resolution)
     uint8_t out_v_backporch;    // output active starts at line 3+out_v_backporch
     uint8_t v_start;            // first line of the first group (before "Line phase")
     uint16_t in_crop;           // source pixels cropped on each side
-    uint8_t ar43;               // HD format: 0 = 16:9, 1 = center 4:3, 2 = wide (180p), 3 = wide (216p)
-    uint8_t hfilt;              // ADC samples averaged per stored sample: 0 = 1, 1 = 2, 2 = 4, 3 = 6
+    uint8_t ar43;               // HD format: 0 = 16:9, 1 = center 4:3, 2 = wide (720p: 180p, 1080p: 216p)
+    uint8_t hfilt;              // ADC samples averaged per stored sample: 0 = 1, 1 = 2, 2 = 4, 3 = 3
     uint8_t ilace;              // 480i output: one field per input frame
     uint8_t fB_st, fB_n;        // 480i field B: line in group / lines averaged
     char name[11];
@@ -185,6 +185,8 @@ typedef struct {
     uint8_t pal;
     // stored rows per field when not the full 240 / 288 (0 = default)
     uint16_t rows;
+    // line buffer in YCbCr 4:1:1 (8 pixels in 3 words; >= 2 clocks per pixel)
+    uint8_t c411;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -229,35 +231,26 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_480p60,      525,  858, 2700, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "480p>480iF", 0, 0, 0, 1, 1 },
     { HDMI_640x480p60,  525,  800, 2400, 262, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "VGA>240pF",  0, 0, 0, 1, 1 },
     { HDMI_640x480p60,  525,  800, 2400, 525, 1, 2, 3,  0, 0,   0, 0, 0, 1, 1, 1, "VGA>480iF",  0, 0, 0, 1, 1 },
-    // 720p "Wide" (whole 16:9 picture letterboxed): 4:1 in both directions,
-    // 1232x720 -> 308x180 (4 ADC samples and 4 lines averaged per pixel; 24
-    // pixels cropped per side), 7 clocks per pixel. 412.5 stored samples per
-    // line: smp_h_total 412 plus h_total_adj (1650 ADC samples). 53 line
-    // buffer slots (4:2:2) absorb the drift of 720 input lines read in 180
-    // output lines.
-    { HDMI_720p60,      750,  412, 2730, 262, 3, 6, 3,  0, 0,  24, 2, 2, 0, 0, 0, "720pW>180p", 0, 0, 0, 1, 0, 1 },
+    // "Wide" modes: line buffer in YCbCr 4:1:1 (8 pixels in 3 words, one
+    // chroma sample per 4 pixels), 3 ADC samples averaged per pixel.
+    // 720p "Wide" (whole 16:9 picture letterboxed): 1224x720 -> 408x180 (4
+    // lines averaged per row, 28 pixels cropped per side), 5 clocks per pixel,
+    // 550 stored samples per line. 53 line buffer slots (153 words per row)
+    // absorb the drift of 720 input lines read in 180 output lines.
+    { HDMI_720p60,      750,  550, 2730, 262, 3, 4, 3,  0, 0,  28, 2, 3, 0, 0, 0, "720pW>180p", 0, 0, 0, 1, 0, 1, 0, 0, 1 },
     //   480i: 360 rows, 180 per field; field A = lines 0-1 of each group of 4,
     //   field B = lines 2-3 (averaged, or lines 0 / 2 without line blending)
-    { HDMI_720p60,      750,  412, 2730, 525, 3, 6, 3,  0, 0,  24, 2, 2, 1, 3, 2, "720pW>480i", 0, 0, 0, 1, 0, 1 },
-    // 1080p "Wide": 6:1 in both directions, 1848x1080 -> 308x180 (6 ADC
-    // samples averaged per pixel, 36 pixels cropped per side; the 4 middle
-    // lines of each group of 6 averaged), 7 clocks per pixel as 720p Wide.
-    // 366.67 stored samples per line: smp_h_total 366 plus h_total_adj (2200
-    // ADC samples). Same read/write drift as 720p Wide (1080 input lines read
-    // in 180 output lines), 53 line buffer slots.
-    //   480i: field A = lines 0-2 of each group of 6, field B = lines 3-5
-    //   (averaged, or lines 1 / 4 without line blending)
-    { HDMI_1080p60,    1125,  366, 2730, 262, 5, 6, 3,  0, 0,  36, 2, 3, 0, 0, 0, "1080W>180p", 0, 0, 0, 1, 0, 1 },
-    { HDMI_1080p60,    1125,  366, 2730, 525, 5, 6, 3,  0, 0,  36, 2, 3, 1, 5, 3, "1080W>480i", 0, 0, 0, 1, 0, 1 },
-    // 1080p "Wide (216p)": 5 lines per output line, 1080 -> 216 rows (90% of
+    { HDMI_720p60,      750,  550, 2730, 525, 3, 4, 3,  0, 0,  28, 2, 3, 1, 3, 2, "720pW>480i", 0, 0, 0, 1, 0, 1, 0, 0, 1 },
+    // 1080p "Wide" (216p): 5 lines per output line, 1080 -> 216 rows (90% of
     // the field height) with the whole 1920 pixel width (the picture is
-    // squeezed horizontally), 4 ADC samples averaged: 480 pixels, 5 clocks
-    // per pixel. Each row takes 74us of input (more than an output line):
-    // ~31 rows of read/write drift, 34 line buffer slots.
+    // squeezed horizontally): 640 pixels, 3 clocks per pixel; 733.33 stored
+    // samples per line (smp_h_total 733 plus h_total_adj). Each row takes 74us
+    // of input (more than an output line): ~31 rows of read/write drift, 34
+    // line buffer slots (240 words per row).
     //   240p: lines 1-4 of each group of 5 averaged (or line 2); 480i: field
     //   A = lines 0-2, field B = lines 2-4 (or lines 1 / 3)
-    { HDMI_1080p60,    1125,  550, 2730, 262, 4, 4, 3,  0, 0,   0, 3, 2, 0, 0, 0, "1080>216p",  0, 0, 0, 1, 0, 1, 0, 216 },
-    { HDMI_1080p60,    1125,  550, 2730, 525, 4, 4, 3,  0, 0,   0, 3, 2, 1, 0, 0, "1080>216i",  0, 0, 0, 1, 0, 1, 0, 216 },
+    { HDMI_1080p60,    1125,  733, 2730, 262, 4, 2, 3,  0, 0,   0, 2, 3, 0, 0, 0, "1080>216p",  0, 0, 0, 1, 0, 1, 0, 216, 1 },
+    { HDMI_1080p60,    1125,  733, 2730, 525, 4, 2, 3,  0, 0,   0, 2, 3, 1, 0, 0, "1080>216i",  0, 0, 0, 1, 0, 1, 0, 216, 1 },
     // 1080p60 "4:1 overscan": the 1708x960 window in the middle (60 lines and
     // 106 pixels cropped per side, ~89% of the picture like the overscan of a
     // TV), 4 lines per output line, 2 ADC samples averaged per stored pixel
@@ -309,13 +302,13 @@ static const ds_mode_t ds_modes[] = {
 // 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
 #define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
-#define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : (((w)+1)/2))
+#define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : ((m)->c411 ? ((w)/8)*3 : (((w)+1)/2)))
 #define DS_LB_SLOTS(st)     (((8192/(st)) > 63) ? 63 : (8192/(st)))
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
 // ADC samples per stored sample
 static uint16_t ds_hskip1(const ds_mode_t *m) {
-    static const uint8_t n[4] = {1, 2, 4, 6};
+    static const uint8_t n[4] = {1, 2, 4, 3};
     return n[m->hfilt & 3];
 }
 
@@ -356,10 +349,8 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         pal = 1;
     else
         return NULL;
-    // "HD format" (720p and 1080p; Wide (216p) is 1080p only, 720p uses Wide (180p))
+    // "HD format" (720p and 1080p; Wide: 180p for 720p, 216p for 1080p)
     ar = cc->ds_720p_ar;
-    if ((preset->vic == HDMI_720p60) && (ar == 3))
-        ar = 2;
 
     if (cc->ds_480i)
         want[npass++] = 1;
@@ -432,17 +423,6 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n
         if (m->ilace) {
             *st_a = cc->ds_vblend_off ? 1 : 2;
             *st_b = cc->ds_vblend_off ? 3 : 4;
-            *n_a = *n_b = cc->ds_vblend_off ? 1 : 3;
-        } else {
-            *st_a = *st_b = cc->ds_vblend_off ? 2 : 4;
-            *n_a = *n_b = cc->ds_vblend_off ? 1 : 4;
-        }
-    } else if (m->vdec == 5) {
-        // groups of 6 lines (1080p Wide). 240p: the 4 middle lines (1-4) or
-        // line 2; 480i: A = lines 0-2, B = lines 3-5 (or lines 1 / 4)
-        if (m->ilace) {
-            *st_a = cc->ds_vblend_off ? 1 : 2;
-            *st_b = cc->ds_vblend_off ? 4 : 5;
             *n_a = *n_b = cc->ds_vblend_off ? 1 : 3;
         } else {
             *st_a = *st_b = cc->ds_vblend_off ? 2 : 4;
@@ -561,7 +541,8 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t u_oc = 2*vin*hin;
     int64_t u_oline = u_oc*m->out_h_total;
     int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1 + m->v_start;
-    int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch;
+    // (4:1:1: a word is written with the 4th / 8th pixel of its group)
+    int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch + (m->c411 ? 7 : 0);
     int64_t off_out = out_offset;  // output hsync + back porch
     int64_t g = m->vdec+1, k = DS_OUT_V_ROWS(m), d = DS_LB_SLOTS(DS_LB_STRIDE(m, w));
     int64_t p = cc->ds_vphase % (m->vdec+1);
@@ -828,6 +809,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_lb_stride = (m->lb_layout == 3) ? DS_LB_STRIDE(m, smp_active) : 0;
     vm_conf->ds_lb_slots = (m->lb_layout == 3) ? DS_LB_SLOTS(vm_conf->ds_lb_stride) : 0;
     vm_conf->ds_lb_rgb = (m->lb_layout == 3) && m->rgb444;
+    vm_conf->ds_lb411 = (m->lb_layout == 3) && m->c411;
     vm_conf->ds_hofs = ds_hofs;
     vm_conf->ds_pll_n = m->pll_n;
     vm_conf->ds_pll_m = m->pll_m;
@@ -855,8 +837,10 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 //  overwrites them.
 //  - down / up: the output frame starts N lines earlier / later than the
 //    input (framesync) and the active lines start N lines later / earlier
-//    after the vsync, so that the line buffer timing is the same; past the
-//    front porch limit the bottom lines are cropped
+//    after the vsync, so that the line buffer timing is the same. The
+//    vertical front porch of the source is kept (some TVs lose sync when the
+//    active lines get closer to the vsync): moving down crops the bottom
+//    lines
 static void ds_pt_position(avconfig_t *cc, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
     int rpt = vm_conf->x_rpt+1;
     int hpos = cc->ds_hpos ? ((int)cc->ds_hpos - SIGNED_NUMVAL_ZERO) : 0;
@@ -903,12 +887,15 @@ static void ds_pt_position(avconfig_t *cc, mode_data_t *vm_out, vm_proc_config_t
     vm_out->timings.h_backporch = bp;
     vm_out->timings.h_active = act;
 
-    // vertical: back porch >= 3 lines, front porch >= 1 line
+    // vertical: back porch >= 3 lines, front porch kept
+    int vfp = field_lines - vsync - vbp - vact;
+    if (vfp < 1)
+        vfp = 1;
     if (vbp + vpos < 3)
         vpos = 3 - vbp;
     vbp += vpos;
-    if (vsync + vbp + vact > field_lines - 1) {
-        int c = (vsync + vbp + vact) - (field_lines - 1);
+    if (vsync + vbp + vact > field_lines - vfp) {
+        int c = (vsync + vbp + vact) - (field_lines - vfp);
         vact -= c;
         vm_conf->y_size = (vm_conf->y_size > c) ? (vm_conf->y_size - c) : 0;
     }

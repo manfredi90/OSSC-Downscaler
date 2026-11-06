@@ -64,6 +64,7 @@ module scanconverter (
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
     input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
+    input lb411,                // line buffer layout 3: YCbCr 4:1:1, 8 pixels in 3 words
     input [12:0] ds_hofs,       // output position at the input frame start (clocks, 0 = line start)
     input ext_sync_mode,
     input ext_frame_change_i,
@@ -407,6 +408,8 @@ linebuf_top #(
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),
     .lb_rgb(lb_rgb),
+    .lb411(lb411),
+    .rd_first(x_ctr == 0),
     .lb_rd_base(lb_rd_base),
     .R_linebuf(R_linebuf),
     .G_linebuf(G_linebuf),

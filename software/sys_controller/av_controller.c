@@ -708,7 +708,8 @@ void update_sc_config()
                           (((vm_conf.x_size >> 12) & 1) << 3) |
                           (((vm_conf.x_rpt >> 4) & 1) << 4) |
                           (((vm_out->timings.h_backporch >> 9) & 1) << 5);
-        sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x3f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16) | ((alt_u32)vm_conf.ds_lb_rgb << 29)) : 0;
+        sl_config3.data = vm_conf.ds_vdec ? ((vm_conf.ds_lb_stride & 0x3ff) | ((vm_conf.ds_lb_slots & 0x3f) << 10) | ((vm_conf.ds_hofs & 0x1fff) << 16) | ((alt_u32)vm_conf.ds_lb_rgb << 29) |
+                                            ((alt_u32)vm_conf.ds_lb411 << 30)) : 0;
     }
 
     sc->hv_in_config = hv_in_config;
