@@ -9,9 +9,8 @@ Unreleased (test builds 1.2.1–1.2.5)
   4 lines per output line (exactly 240 rows), 640 pixels.
 - 1080p Wide is now 216p: 1080 -> 216 lines (5 per output line) with the
   whole width, 480 pixels (4 averaged), squeezed horizontally (aspect ratio
-  not kept). It replaces
-  the 1080p 180p mode; "HD format" has one Wide choice again (720p: 180p,
-  1080p: 216p).
+  not kept). It replaces the 1080p 180p mode; "HD format" has one Wide
+  choice again (720p: 180p, 1080p: 216p).
 - (1.2.4 only: YCbCr 4:1:1 line buffer for the Wide modes, more pixels but
   lower picture quality; back to 4:2:2 in 1.2.5.)
 - H. / V. position also for 15kHz sources in passthrough (1.2.3). Moving
