@@ -91,6 +91,10 @@ wire [31:0] misc_config_sc = {misc_config[31:25], 1'b0, 8'h0, 1'b0, misc_config[
 // store 1 of every (ds_vdec+1) input lines (bit 2 in sl_config: groups of 6)
 wire [2:0] ds_vdec = {sl_config[7], misc_config[26:25]};
 wire [1:0] ds_csync = misc_config[28:27];   // 0=off, 1=XOR, 2=AND (CSync on HSYNC)
+// HDMI RGB range: 0 = full 0-255, 1 = limited 16-235, 2 = 16-255 (DACs that
+// clip below 16). misc_config[8:7]: the stock reverse LPF bits, not used
+// here (masked off for the frontend)
+wire [1:0] out_range = misc_config[8:7];
 wire [1:0] ds_lb_layout = misc_config[30:29]; // line buffer layout (see linebuf_top)
 // sl_config (scanlines removed) now carries downscaler filter controls,
 // sl_config2 the extension bits of the wide horizontal output timings
@@ -396,32 +400,55 @@ always @(posedge pclk_out) begin
     {wd_kill_sync1_reg, wd_kill_sync2_reg} <= {wd_kill, wd_kill_sync1_reg};
 end
 
-// Output registers
+// Output registers: 3 stages (select, range scaling product, output pins);
+// syncs and DE follow with the same latency
+reg [7:0] R_o1, G_o1, B_o1, R_o2, G_o2, B_o2;
+reg [15:0] R_p2, G_p2, B_p2;
+reg HS_o1, VS_o1, DE_o1, HS_o2, VS_o2, DE_o2;
+reg [1:0] out_range_r;
+wire [7:0] range_k = (out_range_r == 2'h2) ? 8'd240 : 8'd220;   // 16-255 / 16-235
 always @(posedge pclk_out) begin
+    out_range_r <= out_range;
+
+    // stage 1: picture / OSD / watchdog blanking
     if (wd_kill_sync2_reg) begin
-        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= 24'h0;
+        {R_o1, G_o1, B_o1} <= 24'h0;
     end else if (osd_enable) begin
-        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {{8{osd_color[2]}}, {8{osd_color[1]}}, {8{osd_color[0]}}};
+        {R_o1, G_o1, B_o1} <= {{8{osd_color[2]}}, {8{osd_color[1]}}, {8{osd_color[0]}}};
     end else begin
-        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {R_sc, G_sc, B_sc};
+        {R_o1, G_o1, B_o1} <= {R_sc, G_sc, B_sc};
     end
 
     // Sync combiner for RGBS (SCART): composite sync is sent on the HSYNC
     // line, which an HDMI-VGA DAC reproduces on VGA pin 13. Syncs are active low.
     if (wd_kill_sync2_reg) begin
-        HDMI_TX_HS <= 1'b1;
-        HDMI_TX_VS <= 1'b1;
-        HDMI_TX_DE <= 1'b0;
+        HS_o1 <= 1'b1;
+        VS_o1 <= 1'b1;
+        DE_o1 <= 1'b0;
     end else begin
         case (ds_csync)
-            2'h1: HDMI_TX_HS <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
-            2'h2: HDMI_TX_HS <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
-            2'h3: HDMI_TX_HS <= CSYNC_sc;               // standard: equalizing pulses + serrated vsync
-            default: HDMI_TX_HS <= HSYNC_sc;
+            2'h1: HS_o1 <= ~(HSYNC_sc ^ VSYNC_sc); // XOR: hsync inverted during vsync
+            2'h2: HS_o1 <= HSYNC_sc & VSYNC_sc;    // AND: low for the whole vsync
+            2'h3: HS_o1 <= CSYNC_sc;               // standard: equalizing pulses + serrated vsync
+            default: HS_o1 <= HSYNC_sc;
         endcase
-        HDMI_TX_VS <= VSYNC_sc;
-        HDMI_TX_DE <= DE_sc;
+        VS_o1 <= VSYNC_sc;
+        DE_o1 <= DE_sc;
     end
+
+    // stage 2: range scaling 16 + round(v * k / 256)
+    {R_o2, G_o2, B_o2} <= {R_o1, G_o1, B_o1};
+    R_p2 <= R_o1 * range_k + 16'd128;
+    G_p2 <= G_o1 * range_k + 16'd128;
+    B_p2 <= B_o1 * range_k + 16'd128;
+    {HS_o2, VS_o2, DE_o2} <= {HS_o1, VS_o1, DE_o1};
+
+    // stage 3: output pins
+    if (out_range_r == 2'h0)
+        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {R_o2, G_o2, B_o2};
+    else
+        {HDMI_TX_RD, HDMI_TX_GD, HDMI_TX_BD} <= {8'd16 + R_p2[15:8], 8'd16 + G_p2[15:8], 8'd16 + B_p2[15:8]};
+    {HDMI_TX_HS, HDMI_TX_VS, HDMI_TX_DE} <= {HS_o2, VS_o2, DE_o2};
 end
 
 

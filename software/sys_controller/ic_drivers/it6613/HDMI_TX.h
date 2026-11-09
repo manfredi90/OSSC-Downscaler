@@ -13,6 +13,8 @@ bool HDMITX_HPD(void);
 void HDMITX_ChangeVideoTiming(int VIC);
 void HDMITX_ChangeVideoTimingAndColor(int VIC, COLOR_TYPE Color);
 void HDMITX_SetAVIInfoFrame(alt_u8 VIC, alt_u8 OutputColorMode, alt_u8 AspectRatio, bool ITU709, bool ITC, alt_u8 pixelrep);
+// AVI InfoFrame RGB quantization range: 0 = full, 1 = limited
+extern alt_u8 hdmitx_rgb_limited;
 
 void HDMITX_DisableVideoOutput(void);
 void HDMITX_EnableVideoOutput(void);

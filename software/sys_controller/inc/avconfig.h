@@ -168,7 +168,7 @@ typedef struct {
 
     /* Downscaler settings */
     alt_u8 ds_csync;        // ds_csync_t: CSync on HSYNC (Off/XOR/AND)
-    alt_u8 ds_unused2;      // was: sampling phase (v0.17; now fixed)
+    alt_u8 ds_out_range;    // HDMI RGB range: 0 = full 0-255, 1 = limited 16-235, 2 = 16-255 (was: v0.17 sampling phase, reset on settings < v4)
     alt_u8 ds_720p_ar;      // 720p: 0 = full 16:9 (squeezed), 1 = center 4:3, 2 = wide (180 lines, letterboxed)
     alt_u8 ds_hfilt_off;    // Standard sampling only (not in the menu): 0 = horizontal 2:1 filter on
     alt_u8 ds_vblend_off;   // 0 = line blending on

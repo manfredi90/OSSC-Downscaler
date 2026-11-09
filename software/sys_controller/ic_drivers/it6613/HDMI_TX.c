@@ -78,6 +78,8 @@ bool HDMITX_HPD(void){
 }
 
 
+alt_u8 hdmitx_rgb_limited = 0;
+
 void HDMITX_SetAVIInfoFrame(alt_u8 VIC, alt_u8 OutputColorMode, alt_u8 AspectRatio, bool ITU709, bool ITC, alt_u8 pixelrep)
 {
     AVI_InfoFrame AviInfo;
@@ -110,7 +112,7 @@ void HDMITX_SetAVIInfoFrame(alt_u8 VIC, alt_u8 OutputColorMode, alt_u8 AspectRat
     AviInfo.pktbyte.AVI_DB[1] = 8 ;
     AviInfo.pktbyte.AVI_DB[1] |= (AspectRatio & 3)<<4 ; // 0: aspect ratio not specified, 1: indicate 4:3, 2: indicate 16:9
     AviInfo.pktbyte.AVI_DB[1] |= (!ITU709)?(1<<6):(2<<6) ; // ITU709 or ITU601
-    AviInfo.pktbyte.AVI_DB[2] = ((1<<3) | (ITC<<7)) ; // indicate "full-range RGB", setup ITC bit
+    AviInfo.pktbyte.AVI_DB[2] = ((hdmitx_rgb_limited ? (1<<2) : (1<<3)) | (ITC<<7)) ; // indicate limited / full-range RGB, setup ITC bit
     AviInfo.pktbyte.AVI_DB[3] = VIC ;
     AviInfo.pktbyte.AVI_DB[4] = pixelrep & 3 ;
     AviInfo.pktbyte.AVI_DB[5] = 0 ;

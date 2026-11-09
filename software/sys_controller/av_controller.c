@@ -219,6 +219,7 @@ inline void TX_enable(tx_mode_t mode)
     EnableVideoOutput(cm.hdmitx_pclk_level ? PCLK_HIGH : PCLK_MEDIUM, COLOR_RGB444, (mode == TX_HDMI_YCBCR444) ? COLOR_YUV444 : COLOR_RGB444, (mode != TX_DVI));
 
     if (mode != TX_DVI) {
+        hdmitx_rgb_limited = (tc.ds_out_range != 0);
         HDMITX_SetAVIInfoFrame(vmode_out.vic, (mode == TX_HDMI_RGB) ? F_MODE_RGB444 : F_MODE_YUV444, tc.hdmi_ar, 0, tc.hdmi_itc, vm_conf.hdmitx_pixr_ifr);
         if (tc.hdmi_vrr)
             HDMITX_SetVRRInfoFrame(tc.hdmi_vrr);
@@ -528,12 +529,18 @@ status_t get_status(tvp_sync_input_t syncinput)
 
     {
         int ds_csync_changed = (tc.ds_csync != cm.cc.ds_csync);
+        int ds_range_changed = (tc.ds_out_range != cm.cc.ds_out_range);
 
         cm.cc = tc;
         update_cur_vm = 0;
 
-        if (ds_csync_changed)
+        if (ds_csync_changed || ds_range_changed)
             update_sc_config();
+        if (ds_range_changed) {
+            hdmitx_rgb_limited = (tc.ds_out_range != 0);
+            if (tc.tx_mode != TX_DVI)
+                HDMITX_SetAVIInfoFrame(vmode_out.vic, (tc.tx_mode == TX_HDMI_RGB) ? F_MODE_RGB444 : F_MODE_YUV444, tc.hdmi_ar, 0, tc.hdmi_itc, vm_conf.hdmitx_pixr_ifr);
+        }
     }
 
     return status;
@@ -632,7 +639,8 @@ void update_sc_config()
 
     misc_config.mask_br = avconfig->mask_br;
     misc_config.mask_color = avconfig->mask_color;
-    misc_config.reverse_lpf = avconfig->reverse_lpf;
+    misc_config.out_range = avconfig->ds_out_range;   // HDMI RGB range (applies to every output)
+    hdmitx_rgb_limited = (avconfig->ds_out_range != 0);  // AVI InfoFrame (set with the next InfoFrame update)
     misc_config.shmask_enable = (avconfig->shmask_mode != 0);
     misc_config.shmask_iv_x = shmask_data_arr_ptr->iv_x;
     misc_config.shmask_iv_y = shmask_data_arr_ptr->iv_y;

@@ -1,6 +1,16 @@
 Changelog
 =========
 
+Unreleased (test build 1.3.1)
+-----------------------------
+
+### New
+- "HDMI range" menu option: Full (0-255), Limited (16-235), Limited
+  (16-255), as the MiSTer's Direct Video options. The FPGA scales the RGB
+  values sent to the HDMI transmitter (every output, menu and test pattern
+  included); the AVI InfoFrame signals limited range for both limited
+  choices. Settings saved with older versions start with Full.
+
 v1.3
 ----
 

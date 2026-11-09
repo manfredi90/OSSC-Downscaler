@@ -26,7 +26,7 @@
 #include "utils.h"
 
 #define DS_SETTINGS_MAGIC   0x4F534453  // "OSDS"
-#define DS_SETTINGS_VERSION 3     // 2: v0.12-v0.16 (migrated on load)
+#define DS_SETTINGS_VERSION 4     // 2: v0.12-v0.16, 3: v1.0-v1.3 (migrated on load)
 
 typedef struct {
     uint32_t magic;
@@ -57,7 +57,7 @@ int ds_settings_load() {
     memcpy(&blob, f, sizeof(blob));
 
     if ((blob.magic != DS_SETTINGS_MAGIC) ||
-        ((blob.version != DS_SETTINGS_VERSION) && (blob.version != 2)) ||
+        ((blob.version != DS_SETTINGS_VERSION) && (blob.version != 2) && (blob.version != 3)) ||
         (blob.len != sizeof(ds_settings_blob_t)) ||
         (blob.crc != blob_crc(&blob)))
     {
@@ -92,6 +92,9 @@ int ds_settings_load() {
         tc.ds_i2p = 0;
     if (tc.ds_flicker > 4)
         tc.ds_flicker = 0;
+    // HDMI range: new in v4 (the byte held the old sampling phase)
+    if ((blob.version < 4) || (tc.ds_out_range > 2))
+        tc.ds_out_range = 0;
     if (tc.s480p_mode > 2)
         tc.s480p_mode = 0;
     if (tc.ds_720p_ar == 3)       // 1.2.2-1.2.3 "Wide (216p)": now "Wide"

@@ -99,6 +99,7 @@ static const char* const adc_pll_bw_desc[] = { "High", "Medium", "Low", "Ultra l
 static const char* const fpga_pll_bw_desc[] = { "High", "Low" };
 static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
+static const char* const ds_range_desc[] = { "Full (0-255)", "Lim. (16-235)", "Lim. (16-255)" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3", "Wide" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
 static const char* const ds_out_desc[] = { "240p", "480i" };
@@ -275,6 +276,7 @@ MENU(menu_settings, P99_PROTECT({ \
 MENU(menu_downscaler, P99_PROTECT({ \
     { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
+    { "HDMI range",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_out_range, OPT_WRAP,   SETTING_ITEM(ds_range_desc) } } },
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
     { "15kHz input",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p,       OPT_WRAP,   SETTING_ITEM(ds_i2p_desc) } } },
     { "Flicker filter",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_flicker,   OPT_WRAP,   SETTING_ITEM(ds_flicker_desc) } } },

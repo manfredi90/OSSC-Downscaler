@@ -98,6 +98,7 @@ Downscaler menu
 |------|--------|---|
 | Output mode | 240p, 480i | |
 | CSync on HSYNC | Off (H+V), XOR, AND, Standard | composite sync type; Standard has equalizing pulses and serrated vsync. |
+| HDMI range | Full (0-255), Lim. (16-235), Lim. (16-255) | RGB levels sent on HDMI (all outputs). Full is right for most HDMI-to-VGA DACs; use Limited if blacks look grey / washed out or whites are clipped, and the 16-255 variant for DACs that expect limited-range black but full-range white (as the MiSTer's Direct Video options) |
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
 | 15kHz input | Passthru, 240p | 480i sources: unchanged, or both fields shown on the same scanlines as 240p (no interlacing, the picture keeps the 240p look) |
 | Flicker filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |

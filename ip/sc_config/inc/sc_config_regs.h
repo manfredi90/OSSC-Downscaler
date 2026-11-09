@@ -108,7 +108,8 @@ typedef union {
     struct {
         uint8_t mask_br:4;
         uint8_t mask_color:3;
-        uint8_t reverse_lpf:5;
+        uint8_t out_range:2;    // downscaler: HDMI RGB range (stock reverse LPF bits, unused here)
+        uint8_t reverse_lpf_rsv:3;
         uint8_t lumacode_mode:3;
         uint8_t shmask_enable:1;
         uint8_t shmask_iv_x:4;
