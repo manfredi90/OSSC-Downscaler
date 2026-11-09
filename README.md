@@ -109,6 +109,7 @@ Downscaler menu
 | H. position | ±40 | also for 15kHz sources in passthrough (240p, 480i, 480i -> 240p): moves the picture without changing it; past the porch limits the edges are cropped |
 | V. position | ±12 | also for passthrough; moving down keeps the source's vertical front porch and crops the bottom lines |
 | Diagnostics | | `Rnnn`: output resyncs since boot (should stay constant while a mode runs); `Paaaa/bbbb`: measured / expected input frame period (low bits; must be equal) |
+| Test pattern | Gray, Grid, Monoscope, RGB | design of the 15kHz test pattern shown at start, with no sync or an unsupported input (select an unused input to see it). **Grid**: 16x12 square cells on a 4:3 screen with centre dots (geometry, convergence); **Monoscope**: circles (round on a correctly adjusted 4:3 screen), color bars, sharpness gratings, gray steps, RGB blocks; **RGB**: red, green, blue and white ramps and steps. Not saved: Gray at start |
 
 Settings are saved with **Settings opt. → Save settings** (stored in this
 firmware's own sector, independent of the official profiles).

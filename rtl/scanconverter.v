@@ -431,6 +431,7 @@ videogen vg0 (
     .pclk           (PCLK_OUT_i),
     .xpos           (xpos_tp >> 1),                   // 1440x240 test pattern ->
     .ypos           ({ypos_tp[9:0], 1'b0}),           // 720x480 generator coords
+    .tp_sel         (misc_config[10:9]),              // test pattern (stock reverse LPF bits)
     .R_out          (R_vg),
     .G_out          (G_vg),
     .B_out          (B_vg)

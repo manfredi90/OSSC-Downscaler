@@ -530,11 +530,12 @@ status_t get_status(tvp_sync_input_t syncinput)
     {
         int ds_csync_changed = (tc.ds_csync != cm.cc.ds_csync);
         int ds_range_changed = (tc.ds_out_range != cm.cc.ds_out_range);
+        int ds_tp_changed = (tc.ds_tp_sel != cm.cc.ds_tp_sel);
 
         cm.cc = tc;
         update_cur_vm = 0;
 
-        if (ds_csync_changed || ds_range_changed)
+        if (ds_csync_changed || ds_range_changed || ds_tp_changed)
             update_sc_config();
         if (ds_range_changed) {
             hdmitx_rgb_limited = (tc.ds_out_range != 0);
@@ -640,6 +641,7 @@ void update_sc_config()
     misc_config.mask_br = avconfig->mask_br;
     misc_config.mask_color = avconfig->mask_color;
     misc_config.out_range = avconfig->ds_out_range;   // HDMI RGB range (applies to every output)
+    misc_config.tp_sel = avconfig->ds_tp_sel;         // test pattern design
     hdmitx_rgb_limited = (avconfig->ds_out_range != 0);  // AVI InfoFrame (set with the next InfoFrame update)
     misc_config.shmask_enable = (avconfig->shmask_mode != 0);
     misc_config.shmask_iv_x = shmask_data_arr_ptr->iv_x;

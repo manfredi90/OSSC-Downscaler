@@ -92,6 +92,8 @@ int ds_settings_load() {
         tc.ds_i2p = 0;
     if (tc.ds_flicker > 4)
         tc.ds_flicker = 0;
+    // test pattern design: not kept, Gray at start
+    tc.ds_tp_sel = 0;
     // HDMI range: new in v4 (the byte held the old sampling phase)
     if ((blob.version < 4) || (tc.ds_out_range > 2))
         tc.ds_out_range = 0;

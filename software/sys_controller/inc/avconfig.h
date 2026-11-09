@@ -182,7 +182,7 @@ typedef struct {
     alt_u8 ds_width;        // full resolution: width = 100% + (ds_width - SIGNED_NUMVAL_ZERO) %, 100% = 80% of the line (0 = unset)
     alt_u8 ds_fixlines;     // 240p: 0 = 260-264 lines (fine width steps), 1 = always 262 lines (fixed to 0, not in the menu)
     alt_u8 ds_unused3;      // was: 480p / VGA sampling phase (v0.17)
-    alt_u8 ds_reserved[1];  // was: 480i -> 240p filter field order (v1.1.2 test)
+    alt_u8 ds_tp_sel;       // test pattern: 0 = gray, 1 = grid, 2 = monoscope, 3 = RGB (not kept: 0 at start; was: v1.1.2 test field order)
 } __attribute__((packed)) avconfig_t;
 
 int set_default_profile(int update_cc);
