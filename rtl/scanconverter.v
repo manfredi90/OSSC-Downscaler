@@ -59,7 +59,7 @@ module scanconverter (
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
     input ds_vflt,              // 480p -> 480i flicker filter (see linebuf_top)
-    input ds_vflt_bofs,
+    input [1:0] ds_vflt_bofs,
     input [4:0] ds_vflt_a,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines

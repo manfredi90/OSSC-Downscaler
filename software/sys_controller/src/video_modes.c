@@ -185,6 +185,9 @@ typedef struct {
     uint8_t pal;
     // stored rows per field when not the full 240 / 288 (0 = default)
     uint16_t rows;
+    // ADC samples per line when not the source pixel clock (0 = source
+    // h_total): 1280x1024 has no exact output PLL ratio at 1688
+    uint16_t adc_h_total;
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
@@ -265,6 +268,21 @@ static const ds_mode_t ds_modes[] = {
     // 0-1, field B = lines 2-3 of each group
     { HDMI_Unknown,    1000,  900, 2400, 262, 3, 2, 3,  0, 0,   0, 0, 1, 0, 0, 0, "960p>240p",  0, 0, 0, 1 },
     { HDMI_Unknown,    1000,  900, 2400, 525, 3, 2, 3,  0, 0,   0, 0, 1, 1, 3, 2, "960p>480i",  0, 0, 0, 1 },
+    // 1024x768 (VESA DMT timing, 1344x806, 65MHz): 3 lines per output line
+    // (806 / 262 = 3.08), the 720 lines in the middle (24 cropped at the top
+    // and the bottom) -> 240 rows, and the 960 pixels in the middle (32
+    // cropped per side, 4:3) at full resolution, 2 clocks per pixel; 480i as
+    // 720p (field A = line 0, field B = lines 1-2)
+    { HDMI_Unknown,     806, 1344, 2400, 262, 2, 1, 3,  0, 24,  32, 0, 0, 0, 0, 0, "XGA>240p",   0, 0, 0, 1 },
+    { HDMI_Unknown,     806, 1344, 2400, 525, 2, 1, 3,  0, 24,  32, 0, 0, 1, 2, 2, "XGA>480i",   0, 0, 0, 1 },
+    // 1280x1024 (VESA DMT timing, 1688x1066, 108MHz): 4 lines per output line
+    // (1066 / 262 = 4.07), the 960 lines in the middle (32 cropped at the
+    // top and the bottom) -> 240 rows, 2 ADC samples averaged, 3 clocks per
+    // pixel (as 1280x960). 1688 x 1066 (8 x 211 x 2 x 13 x 41) has no output
+    // PLL ratio in the limits: the ADC takes 1680 samples per line (0.5%
+    // fewer, 637 stored pixels).
+    { HDMI_Unknown,    1066,  840, 2400, 262, 3, 2, 3,  0, 32,   0, 0, 1, 0, 0, 0, "SXGA>240p",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
+    { HDMI_Unknown,    1066,  840, 2400, 525, 3, 2, 3,  0, 32,   0, 0, 1, 1, 3, 2, "SXGA>480i",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
     // 576p50: 720 pixels (864/line, 27MHz), 3 clocks per pixel, RGB 4:4:4 as
     // 480p; 288p (310-314 lines, 15.5-15.7kHz) or 576i (625 lines)
     { HDMI_576p50,      625,  864, 2700, 312, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "576p>288pF", 0, 0, 0, 1, 1, 0, 1 },
@@ -403,16 +421,60 @@ static uint32_t ds_gcd(uint32_t a, uint32_t b) {
 
 static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, uint16_t w, uint16_t rpt);
 
+// HD 480i flicker filter: each field row averages 3 or 4 input lines (about
+// 2 output lines) instead of 1-2, field B groups start 2 lines later
+// (vflt_bofs) so that the fields stay half an output line apart.
+//  - groups of 4 (1080p, 1280x960/1024, 720p Wide): A = lines 0-2, B = 2-4
+//    (levels 1-2) or A = 0-3, B = 2-5 (levels 3-4)
+//  - groups of 3 (720p, 1024x768): A = lines 0-2, B = 2-3 (all levels)
+#define DS_HD_FLT(m, cc)    ((m)->ilace && (m)->t0_auto && !(m)->rgb444 && (((m)->vdec == 2) || ((m)->vdec == 3)) && \
+                             (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
+
 // Line written in each group (st, 0..vdec) and number of lines averaged into
-// it (n, ending at st), for field A (240p: every field) and field B (480i).
-static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, int *st_a, int *n_a, int *st_b, int *n_b) {
+// it (n, ending at st), for field A (240p: every field) and field B (480i);
+// field B groups start *bofs lines later, and *ext more input lines are
+// captured after the active ones so that the last row is written.
+static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
+                           int *st_a, int *n_a, int *st_b, int *n_b, int *bofs, int *ext) {
+    *bofs = 0;
+    *ext = 0;
     if (DS_VFLT(m, cc)) {
         // flicker filter: rows written at the line after their center line,
         // field B groups one line later (see linebuf_top)
         *st_a = 1;
-        *st_b = 2;
+        *st_b = 1;
         *n_a = *n_b = 1;
+        *bofs = 1;
+        *ext = 1;
         return;
+    }
+    if (DS_HD_FLT(m, cc)) {
+        // last line used by the last field B row, and the lines available
+        // after the active ones (up to 2 front porch lines, blank: the last
+        // row of field B gets a bit darker when it uses them)
+        int g = m->vdec+1, k = DS_OUT_V_ROWS(m), p = cc->ds_vphase % g;
+        int fp = vm_in->timings.v_total - vm_in->timings.v_synclen - vm_in->timings.v_backporch - vm_in->timings.v_active;
+        int avail = vm_in->timings.v_active - 1 + ((fp > 2) ? 2 : ((fp > 0) ? fp : 0));
+        int base = m->v_start + p + g*(k-1) + 2;
+        int c;
+        for (c = 0; c < 2; c++) {
+            int sa, na, sb, nb;
+            if (m->vdec == 3) {
+                na = nb = ((cc->ds_flicker >= 3) && (c == 0)) ? 4 : 3;
+                sa = sb = na - 1;
+            } else {
+                if (c)
+                    break;
+                sa = 2; na = 3; sb = 1; nb = 2;
+            }
+            if (base + sb <= avail) {
+                *st_a = sa; *n_a = na; *st_b = sb; *n_b = nb;
+                *bofs = 2;
+                *ext = (base + sb > vm_in->timings.v_active - 1) ? (base + sb - (vm_in->timings.v_active - 1)) : 0;
+                return;
+            }
+        }
+        // does not fit: no filter
     }
     if (m->vdec == 4) {
         // groups of 5 lines (1080p Wide 216p). 240p: lines 1-4 or line 2;
@@ -544,9 +606,10 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t p = cc->ds_vphase % (m->vdec+1);
     int64_t eps = DS_T0_MARGIN_OC*u_oc;
     int64_t lo = INT64_MIN, hi = INT64_MAX;
-    int st_a, n_a, st_b, n_b, f, i;
+    int st_a, n_a, st_b, n_b, bofs, ext, f, i;
 
-    ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);
+    ds_field_lines(m, cc, vm_in, &st_a, &n_a, &st_b, &n_b, &bofs, &ext);
+    st_b += bofs;
 
     // Row r is written while input line y0+g*r+st arrives (first pixel at
     // off_in) and read during output line T0+r (first pixel at off_out); its
@@ -594,9 +657,20 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 
 
 static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm_proc_config_t *vm_conf) {
-    uint16_t in_h_total = vm_in->timings.h_total;
+    uint16_t in_h_total;
     uint16_t smp_active, out_h_synclen, out_h_bp_min, out_h_fp_min, out_active_max, out_active, rpt;
     ds_mode_t me;   // full resolution: row with the computed output timing
+
+    // ADC samples per line other than the source h_total: the horizontal
+    // timings are scaled to it
+    if (m->adc_h_total && (vm_in->timings.h_total != m->adc_h_total)) {
+        uint32_t ht = vm_in->timings.h_total, a = m->adc_h_total;
+        vm_in->timings.h_synclen = (vm_in->timings.h_synclen*a + ht/2)/ht;
+        vm_in->timings.h_backporch = (vm_in->timings.h_backporch*a + ht/2)/ht;
+        vm_in->timings.h_active = (vm_in->timings.h_active*a + ht/2)/ht;
+        vm_in->timings.h_total = a;
+    }
+    in_h_total = vm_in->timings.h_total;
 
     // Optional source crop (e.g. center 4:3 of 16:9): narrower capture window
     vm_in->timings.h_backporch += m->in_crop;
@@ -776,23 +850,24 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
-    if (DS_VFLT(m, cc)) {
-        // flicker filter (see linebuf_top): both fields write at group
-        // position 1, field B groups start one line later. Rows are
-        // a*L(c-1) + (16-2a)*L(c) + a*L(c+1), a = 1..4 sixteenths. The last
-        // field B row is centered on line 479 and uses line 480 (blanking):
-        // one more input line is captured.
-        vm_conf->ds_field_cfg = 1 | (1<<2) | (1<<4) | (1<<6);
-        vm_conf->ds_vflt = 1;
-        vm_conf->ds_vflt_bofs = 1;
-        vm_conf->ds_vflt_a = cc->ds_flicker;
-        vm_in->timings.v_active += 1;
-    } else {
-        // n = 4 is coded as 0; bits 8/9: bit 2 of st (groups of 6)
-        int st_a, n_a, st_b, n_b;
-        ds_field_lines(m, cc, &st_a, &n_a, &st_b, &n_b);
+    {
+        // n = 4 is coded as 0; bits 8/9: bit 2 of st (groups of 5)
+        int st_a, n_a, st_b, n_b, bofs, ext;
+        ds_field_lines(m, cc, vm_in, &st_a, &n_a, &st_b, &n_b, &bofs, &ext);
         vm_conf->ds_field_cfg = (st_a & 3) | ((n_a & 3)<<2) | ((st_b & 3)<<4) | ((n_b & 3)<<6) |
                                 (((st_a >> 2) & 1)<<8) | (((st_b >> 2) & 1)<<9);
+        vm_conf->ds_vflt_bofs = bofs;
+        if (DS_VFLT(m, cc)) {
+            // flicker filter (see linebuf_top): both fields write at group
+            // position 1, field B groups start one line later. Rows are
+            // a*L(c-1) + (16-2a)*L(c) + a*L(c+1), a = 1..4 sixteenths. The
+            // last field B row is centered on line 479 and uses line 480
+            // (blanking): one more input line is captured.
+            vm_conf->ds_vflt = 1;
+            vm_conf->ds_vflt_a = cc->ds_flicker;
+        }
+        // lines after the active ones used by the last field B row
+        vm_in->timings.v_active += ext;
     }
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_vdec = m->vdec;

@@ -1,6 +1,27 @@
 Changelog
 =========
 
+Unreleased (test build 1.4.1)
+-----------------------------
+
+### New
+- 1024x768 input (60Hz, VESA standard timing 1344x806): 240p and 480i,
+  3 lines per output line, the 960x720 center window (32 pixels and 24
+  lines cropped per side), full resolution.
+- 1280x1024 input (60Hz, VESA standard timing 1688x1066): 240p and 480i,
+  4 lines per output line, the 960 center lines, 2 samples averaged. The
+  ADC takes 1680 samples per line (0.5% fewer than the source pixels): the
+  standard 1688 have no frame-locked output clock within the FPGA PLL
+  limits.
+- "Flicker filter" also for HD and PC sources with 480i output: each field
+  line averages more input lines (1080p Full / Center 4:3, 1280x1024,
+  1280x960, 720p Wide: 3 lines at levels 1-2, 4 at levels 3-4, instead of
+  2; 720p and 1024x768: 3 lines in field A, 2 in field B, one strength), the
+  two fields staying half an output line apart. The last field B line may
+  use the first lines after the active picture (blank: it gets a bit
+  darker); with no lines left (720p "Line phase" 2, 720p Wide phases 2-3,
+  1280x960 phases 1-3) the filter is off.
+
 v1.4
 ----
 

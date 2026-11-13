@@ -66,7 +66,9 @@ module linebuf_top (
     // on the odd lines. The first row of a field has no line before it: its
     // center weight is 16-a.
     input vflt,
-    input vflt_bofs,
+    // field B groups start vflt_bofs lines later (0-3): 1 for the 480p flicker
+    // filter above, 2 for the HD 480i flicker filter (rows of 3-4 lines)
+    input [1:0] vflt_bofs,
     input [4:0] vflt_a,
 
     // layout 3 (YCbCr 4:2:2, or RGB one pixel per word with lb_rgb): words
@@ -402,8 +404,8 @@ reg [4:0] vf_w;             // per line: flicker filter weight of this line (1/1
 reg [10:0] grp_start, first_store;
 reg [4:0] vf_wc, vf_wf;     // flicker filter center line weights: 16-2a, first row 16-a
 always @(posedge PCLK_CAP_i) begin
-    grp_start <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b};
-    first_store <= {5'h0, ds_vstart} + {10'h0, vflt_bofs & fld_b} + {8'h0, st_gpos};
+    grp_start <= {5'h0, ds_vstart} + {9'h0, fld_b ? vflt_bofs : 2'b0};
+    first_store <= {5'h0, ds_vstart} + {9'h0, fld_b ? vflt_bofs : 2'b0} + {8'h0, st_gpos};
     vf_wc <= 5'd16 - {vflt_a[3:0], 1'b0};
     vf_wf <= 5'd16 - vflt_a;
 end

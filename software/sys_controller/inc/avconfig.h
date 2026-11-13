@@ -175,7 +175,7 @@ typedef struct {
     alt_u8 ds_480i;         // output: 0 = 240p, 1 = 480i
     alt_u8 ds_vphase;       // line group phase 0..2 (align with integer-scaled content)
     alt_u8 ds_i2p;          // 480i/576i input: 0 = passthrough, 1 = 240p/288p (both fields on the same lines)
-    alt_u8 ds_flicker;      // 480p/VGA -> 480i flicker filter 0 (off) .. 4 (was: v1.1.2 480i -> 240p filter)
+    alt_u8 ds_flicker;      // 480i output flicker filter 0 (off) .. 4 (480p/VGA/576p, HD/PC sources; was: v1.1.2 480i -> 240p filter)
     alt_u8 ds_hpos;         // H position (SIGNED_NUMVAL_ZERO = centered; 0 = unset)
     alt_u8 ds_vpos;         // V position (SIGNED_NUMVAL_ZERO = default; 0 = unset)
     alt_u8 ds_native;       // 0 = standard sampling, 1 = full resolution (fixed to 1, not in the menu)

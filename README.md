@@ -60,8 +60,10 @@ Supported inputs and outputs
 | Input (~60Hz unless noted) | Output | Notes |
 |---------------------|--------|-------|
 | 1920x1080p          | 240p / 480i | **Full 16:9**: the 1708x960 center window (~89% of the picture, like a TV's overscan), squeezed to 4:3, 4 input lines per output line. **Center 4:3**: the 1280x960 center window. Best with sources scaled x4 vertically. **Wide**: 216 lines centered (5 input lines each) with the whole width, 480 pixels (4 averaged), squeezed horizontally (aspect ratio not kept) |
+| 1280x1024p          | 240p / 480i | VESA standard timing only (1688x1066, 64kHz, 108MHz). 4 lines per output line, the 960 center lines (32 cropped at the top and the bottom), 637 pixels (2 averaged; the ADC takes 1680 samples per line, the standard 1688 have no frame-locked output clock) |
 | 1280x960p           | 240p / 480i | VESA standard timing only (1800x1000, 60kHz, 108MHz). 4 lines per output line: exactly 240 lines, ideal for 320x240 content scaled x4. 640 pixels (2 averaged) |
 | 1280x720p           | 240p / 480i | **Full 16:9** (squeezed to 4:3), **Center 4:3** (crop), **Wide** (whole 16:9 picture letterboxed: 180 lines centered, 4x4 pixel average) |
+| 1024x768p           | 240p / 480i | VESA standard timing only (1344x806, 48kHz, 65MHz). 3 lines per output line, the 960x720 center window (32 pixels and 24 lines cropped per side, 4:3), full resolution |
 | 720x480p            | 240p / 480i | optional flicker filter in 480i |
 | 640x480p            | 240p / 480i | optional flicker filter in 480i |
 | 720x576p (50Hz)     | 288p / 576i | 312 lines per field (310–314, 15.5–15.7kHz) or 625 lines; optional flicker filter in 576i |
@@ -101,7 +103,7 @@ Downscaler menu
 | HDMI range | Full (0-255), Lim. (16-235), Lim. (16-255) | RGB levels sent on HDMI (all outputs). Full is right for most HDMI-to-VGA DACs; use Limited if blacks look grey / washed out or whites are clipped, and the 16-255 variant for DACs that expect limited-range black but full-range white (as the MiSTer's Direct Video options) |
 | 480p input | Auto, 720x480, 640x480 | 720x480 and 640x480 have the same line rate and are told apart by the hsync width; select the format manually if a source is misdetected (symptom: shimmer on horizontal motion) |
 | 15kHz input | Passthru, 240p | 480i sources: unchanged, or both fields shown on the same scanlines as 240p (no interlacing, the picture keeps the 240p look) |
-| Flicker filter | Off, 1–4 | 480p / 640x480 sources with 480i output: flicker filter, each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture |
+| Flicker filter | Off, 1–4 | 480i output. 480p / 640x480 / 576p sources: each field line mixed with the lines above and below (weights a, 1-2a, a with a = level/16; 4 = 1/4, 1/2, 1/4). Higher levels: less interlace flicker, softer picture. HD and PC sources (1080p Full / Center 4:3, 1280x1024, 1280x960, 720p Wide: 4 input lines per output line): each field line averages 3 input lines (levels 1–2) or 4 (levels 3–4) instead of 2; 720p and 1024x768 (3 lines per output line): 3 lines in field A and 2 in field B (one strength for all levels). Not available with some "Line phase" values (no input lines left below the picture: 720p phase 2, 720p Wide phases 2–3, 1280x960 phases 1–3) |
 | HD format | Full 16:9, Center 4:3, Wide | 720p and 1080p (Wide: 180p for 720p, 216p for 1080p) |
 | Line blending | On, Off | average of the input lines that make one output line |
 | Line phase | 0–3 | shifts the input line groups by whole lines, to align them with integer-scaled content |

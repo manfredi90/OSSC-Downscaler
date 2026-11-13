@@ -708,7 +708,7 @@ void update_sc_config()
         uint16_t h_synclen = vm_conf.ds_vdec ? vm_conf.ds_h_synclen : vm_out->timings.h_synclen;
 
         hv_out_config.h_synclen = h_synclen & 0xff;
-        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_vflt << 5) | (vm_conf.ds_vflt_bofs << 6) |
+        sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | (vm_conf.ds_vflt << 5) | ((vm_conf.ds_vflt_bofs & 1) << 6) | ((alt_u32)((vm_conf.ds_vflt_bofs >> 1) & 1) << 23) |
                                              (((vm_conf.ds_vdec >> 2) & 1) << 7) | ((vm_conf.ds_field_cfg & 0xff) << 8) |
                                              ((alt_u32)(vm_conf.ds_vflt_a & 0x1f) << 16) | ((alt_u32)((vm_conf.ds_field_cfg >> 8) & 3) << 21)) :
                          (vm_conf.ds_i2p << 4);
