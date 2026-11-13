@@ -280,9 +280,10 @@ static const ds_mode_t ds_modes[] = {
     // top and the bottom) -> 240 rows, 2 ADC samples averaged, 3 clocks per
     // pixel (as 1280x960). 1688 x 1066 (8 x 211 x 2 x 13 x 41) has no output
     // PLL ratio in the limits: the ADC takes 1680 samples per line (0.5%
-    // fewer, 637 stored pixels).
-    { HDMI_Unknown,    1066,  840, 2400, 262, 3, 2, 3,  0, 32,   0, 0, 1, 0, 0, 0, "SXGA>240p",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
-    { HDMI_Unknown,    1066,  840, 2400, 525, 3, 2, 3,  0, 32,   0, 0, 1, 1, 3, 2, "SXGA>480i",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
+    // fewer: 1274 active samples, 1 cropped per side for an even 4:2:2
+    // width, 636 stored pixels).
+    { HDMI_Unknown,    1066,  840, 2400, 262, 3, 2, 3,  0, 32,   1, 0, 1, 0, 0, 0, "SXGA>240p",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
+    { HDMI_Unknown,    1066,  840, 2400, 525, 3, 2, 3,  0, 32,   1, 0, 1, 1, 3, 2, "SXGA>480i",  0, 0, 0, 1, 0, 0, 0, 0, 1680 },
     // 576p50: 720 pixels (864/line, 27MHz), 3 clocks per pixel, RGB 4:4:4 as
     // 480p; 288p (310-314 lines, 15.5-15.7kHz) or 576i (625 lines)
     { HDMI_576p50,      625,  864, 2700, 312, 1, 2, 3,  0, 0,   0, 0, 0, 0, 0, 0, "576p>288pF", 0, 0, 0, 1, 1, 0, 1 },
