@@ -1,0 +1,155 @@
+Flow report for ossc
+Sat Nov 14 09:48:54 2026
+Quartus Prime Version 21.1.1 Build 850 06/23/2022 SJ Lite Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Flow Summary
+  3. Flow Settings
+  4. Flow Non-Default Global Settings
+  5. Flow Elapsed Time
+  6. Flow OS Summary
+  7. Flow Log
+  8. Flow Messages
+  9. Flow Suppressed Messages
+
+
+
+----------------
+; Legal Notice ;
+----------------
+Copyright (C) 2022  Intel Corporation. All rights reserved.
+Your use of Intel Corporation's design tools, logic functions 
+and other software and tools, and any partner logic 
+functions, and any output files from any of the foregoing 
+(including device programming or simulation files), and any 
+associated documentation or information are expressly subject 
+to the terms and conditions of the Intel Program License 
+Subscription Agreement, the Intel Quartus Prime License Agreement,
+the Intel FPGA IP License Agreement, or other applicable license
+agreement, including, without limitation, that your use is for
+the sole purpose of programming logic devices manufactured by
+Intel and sold by Intel or its authorized distributors.  Please
+refer to the applicable agreement for further details, at
+https://fpgasoftware.intel.com/eula.
+
+
+
++----------------------------------------------------------------------------------+
+; Flow Summary                                                                     ;
++------------------------------------+---------------------------------------------+
+; Flow Status                        ; Successful - Sat Nov 14 09:48:44 2026       ;
+; Quartus Prime Version              ; 21.1.1 Build 850 06/23/2022 SJ Lite Edition ;
+; Revision Name                      ; ossc                                        ;
+; Top-level Entity Name              ; ossc                                        ;
+; Family                             ; Cyclone IV E                                ;
+; Device                             ; EP4CE15E22C8                                ;
+; Timing Models                      ; Final                                       ;
+; Total logic elements               ; 14,638 / 15,408 ( 95 % )                    ;
+;     Total combinational functions  ; 13,041 / 15,408 ( 85 % )                    ;
+;     Dedicated logic registers      ; 7,101 / 15,408 ( 46 % )                     ;
+; Total registers                    ; 7128                                        ;
+; Total pins                         ; 81 / 82 ( 99 % )                            ;
+; Total virtual pins                 ; 0                                           ;
+; Total memory bits                  ; 456,704 / 516,096 ( 88 % )                  ;
+; Embedded Multiplier 9-bit elements ; 35 / 112 ( 31 % )                           ;
+; Total PLLs                         ; 1 / 4 ( 25 % )                              ;
++------------------------------------+---------------------------------------------+
+
+
++-----------------------------------------+
+; Flow Settings                           ;
++-------------------+---------------------+
+; Option            ; Setting             ;
++-------------------+---------------------+
+; Start date & time ; 11/14/2026 09:45:57 ;
+; Main task         ; Compilation         ;
+; Revision Name     ; ossc                ;
++-------------------+---------------------+
+
+
++--------------------------------------------------------------------------------------------------------------------------------------------+
+; Flow Non-Default Global Settings                                                                                                           ;
++-------------------------------------+-------------------------------------------------------+---------------+-------------+----------------+
+; Assignment Name                     ; Value                                                 ; Default Value ; Entity Name ; Section Id     ;
++-------------------------------------+-------------------------------------------------------+---------------+-------------+----------------+
+; ALLOW_REGISTER_RETIMING             ; Off                                                   ; On            ; --          ; --             ;
+; COMPILER_SIGNATURE_ID               ; 205601074808512.179464955700112                       ; --            ; --          ; --             ;
+; CYCLONEII_OPTIMIZATION_TECHNIQUE    ; Speed                                                 ; Balanced      ; --          ; --             ;
+; EDA_OUTPUT_DATA_FORMAT              ; None                                                  ; --            ; --          ; eda_simulation ;
+; ENABLE_SIGNALTAP                    ; Off                                                   ; --            ; --          ; --             ;
+; EXTRACT_VERILOG_STATE_MACHINES      ; Off                                                   ; On            ; --          ; --             ;
+; INI_VARS                            ; FIOMGR_ENABLE_SPI_TIMING=ON                           ; --            ; --          ; --             ;
+; MAX_CORE_JUNCTION_TEMP              ; 85                                                    ; --            ; --          ; --             ;
+; MIN_CORE_JUNCTION_TEMP              ; 0                                                     ; --            ; --          ; --             ;
+; MISC_FILE                           ; sys/synthesis/../sys.cmp                              ; --            ; --          ; --             ;
+; MISC_FILE                           ; sys/synthesis/../../sys.qsys                          ; --            ; --          ; --             ;
+; MISC_FILE                           ; rtl/pll_2x.ppf                                        ; --            ; --          ; --             ;
+; OUTPUT_IO_TIMING_FAR_END_VMEAS      ; Half Signal Swing                                     ; --            ; --          ; --             ;
+; OUTPUT_IO_TIMING_FAR_END_VMEAS      ; Half Signal Swing                                     ; --            ; --          ; --             ;
+; OUTPUT_IO_TIMING_NEAR_END_VMEAS     ; Half Vccio                                            ; --            ; --          ; --             ;
+; OUTPUT_IO_TIMING_NEAR_END_VMEAS     ; Half Vccio                                            ; --            ; --          ; --             ;
+; PARTITION_COLOR                     ; -- (Not supported for targeted family)                ; --            ; --          ; Top            ;
+; PARTITION_FITTER_PRESERVATION_LEVEL ; -- (Not supported for targeted family)                ; --            ; --          ; Top            ;
+; PARTITION_NETLIST_TYPE              ; -- (Not supported for targeted family)                ; --            ; --          ; Top            ;
+; PLACEMENT_EFFORT_MULTIPLIER         ; 1                                                     ; 1.0           ; --          ; --             ;
+; POWER_BOARD_THERMAL_MODEL           ; None (CONSERVATIVE)                                   ; --            ; --          ; --             ;
+; POWER_DEFAULT_INPUT_IO_TOGGLE_RATE  ; 50%                                                   ; 12.5%         ; --          ; --             ;
+; POWER_PRESET_COOLING_SOLUTION       ; No Heat Sink With Still Air                           ; --            ; --          ; --             ;
+; PROJECT_OUTPUT_DIRECTORY            ; output_files                                          ; --            ; --          ; --             ;
+; ROUTER_CLOCKING_TOPOLOGY_ANALYSIS   ; On                                                    ; Off           ; --          ; --             ;
+; ROUTER_EFFORT_MULTIPLIER            ; 2.0                                                   ; 1.0           ; --          ; --             ;
+; SEARCH_PATH                         ; rtl                                                   ; --            ; --          ; --             ;
+; SEARCH_PATH                         ; software/sys_controller/mem_init/                     ; --            ; --          ; --             ;
+; SEARCH_PATH                         ; ip/ibex_qsys/rtl_extra                                ; --            ; --          ; --             ;
+; SLD_FILE                            ; sys/synthesis/sys.regmap                              ; --            ; --          ; --             ;
+; SLD_FILE                            ; sys/synthesis/sys.debuginfo                           ; --            ; --          ; --             ;
+; SLD_INFO                            ; QSYS_NAME sys HAS_SOPCINFO 1 GENERATION_ID 1794649549 ; --            ; sys         ; --             ;
+; SMART_RECOMPILE                     ; On                                                    ; Off           ; --          ; --             ;
+; SOPCINFO_FILE                       ; sys/synthesis/../../sys.sopcinfo                      ; --            ; --          ; --             ;
+; SYNTHESIS_ONLY_QIP                  ; On                                                    ; --            ; --          ; --             ;
+; USE_SIGNALTAP_FILE                  ; output_files/ossc_new.stp                             ; --            ; --          ; --             ;
+; VERILOG_INPUT_VERSION               ; SystemVerilog_2005                                    ; Verilog_2001  ; --          ; --             ;
+; VERILOG_MACRO                       ; SYNTHESIS=<None>                                      ; --            ; --          ; --             ;
+; VERILOG_SHOW_LMF_MAPPING_MESSAGES   ; Off                                                   ; --            ; --          ; --             ;
++-------------------------------------+-------------------------------------------------------+---------------+-------------+----------------+
+
+
++--------------------------------------------------------------------------------------------------------------------------+
+; Flow Elapsed Time                                                                                                        ;
++----------------------+--------------+-------------------------+---------------------+------------------------------------+
+; Module Name          ; Elapsed Time ; Average Processors Used ; Peak Virtual Memory ; Total CPU Time (on all processors) ;
++----------------------+--------------+-------------------------+---------------------+------------------------------------+
+; Analysis & Synthesis ; 00:01:01     ; 1.0                     ; 776 MB              ; 00:01:10                           ;
+; Fitter               ; 00:01:36     ; 1.1                     ; 1040 MB             ; 00:02:20                           ;
+; Assembler            ; 00:00:02     ; 1.0                     ; 588 MB              ; 00:00:02                           ;
+; Timing Analyzer      ; 00:00:09     ; 1.3                     ; 692 MB              ; 00:00:11                           ;
+; Total                ; 00:02:48     ; --                      ; --                  ; 00:03:43                           ;
++----------------------+--------------+-------------------------+---------------------+------------------------------------+
+
+
++------------------------------------------------------------------------------------------+
+; Flow OS Summary                                                                          ;
++----------------------+------------------+------------------+------------+----------------+
+; Module Name          ; Machine Hostname ; OS Name          ; OS Version ; Processor type ;
++----------------------+------------------+------------------+------------+----------------+
+; Analysis & Synthesis ; 8a12731193df     ; Debian GNU/Linux ; 9          ; x86_64         ;
+; Fitter               ; 8a12731193df     ; Debian GNU/Linux ; 9          ; x86_64         ;
+; Assembler            ; 8a12731193df     ; Debian GNU/Linux ; 9          ; x86_64         ;
+; Timing Analyzer      ; 8a12731193df     ; Debian GNU/Linux ; 9          ; x86_64         ;
++----------------------+------------------+------------------+------------+----------------+
+
+
+------------
+; Flow Log ;
+------------
+quartus_map --read_settings_files=on --write_settings_files=off ossc -c ossc
+quartus_fit --read_settings_files=off --write_settings_files=off ossc -c ossc
+quartus_asm --read_settings_files=off --write_settings_files=off ossc -c ossc
+quartus_sta ossc -c ossc
+
+
+
