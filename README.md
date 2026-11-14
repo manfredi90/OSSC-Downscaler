@@ -90,6 +90,10 @@ Installation
    OSSC outputs the 15kHz test pattern until a supported input is found.
 4. Press button 3 on the remote control (RGBHV) to switch to the correct input   
 
+Buttons on the OSSC: the 1st one selects the next input (as in the official
+firmware); the 2nd one switches between 240p and 480i (short press) and
+selects the next HD format, Full 16:9 / Center 4:3 / Wide (held 1 second).
+
 To return to the official firmware, power cycle the OSSC.
 
 

@@ -308,6 +308,8 @@ static const ds_mode_t ds_modes[] = {
 // configs (M = 100-120), so M is kept in a similar range: v0.16 used
 // M = 262 at 3.6MHz for VGA, which showed shimmer.
 #define DS_PLL_PFD_MIN_KHZ  5000
+// VCO: 600-1300MHz in the datasheet, 650 for margin at the low end
+#define DS_PLL_VCO_MIN_KHZ  650000
 #define DS_PLL_M_MAX        200
 #define DS_OUT_V_ACTIVE_PAL 288
 // active lines per output field, and stored rows (Wide: 180 of them)
@@ -406,7 +408,7 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
 // pclk_out = pclk_in * M / (N * C) and the output must stay frame locked, so
 //   out_h * (output lines per input frame) / (h_total_in * v_total_in) = M / (N * C)
 // exactly. Only some out_h have a solution with M, C <= 510 in the PLL
-// limits (VCO 600-1300MHz, phase detector 5-10MHz, M 50-200 near the low
+// limits (VCO 650-1300MHz, phase detector 5-10MHz, M 50-200 near the low
 // bandwidth configs whose loop filter settings are reused, output 25-66MHz); for 240p the field may also have 260-264 lines
 // (15.6-15.9kHz) to find more of them, unless fixed_lines asks for 262 only
 // (exact standard height, coarser width steps). Picks the line length whose active
@@ -554,7 +556,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     pfd = fin_khz/n;
                     vco = (fin_khz*m)/n;
                     out = vco/c;
-                    if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < 600000) || (vco > 1300000) ||
+                    if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < DS_PLL_VCO_MIN_KHZ) || (vco > 1300000) ||
                         (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ))
                         continue;
                     // the line buffer must absorb the read/write drift of this line rate

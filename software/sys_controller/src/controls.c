@@ -27,6 +27,7 @@
 #include "menu.h"
 #include "av_controller.h"
 #include "video_modes.h"
+#include "sys/alt_timestamp.h"
 #include "userdata.h"
 #include "ds_settings.h"
 #include "firmware.h"
@@ -74,6 +75,15 @@ char *uart_rx_buf_ptr = uart_rx_buf;
 alt_u32 remote_code;
 alt_u8 remote_rpt, remote_rpt_prev;
 alt_u32 btn_code, btn_code_prev;
+
+// Downscaler firmware: 2nd PCB button, short press = 240p / 480i, long press
+// (held 1s) = next HD format (Full 16:9 / Center 4:3 / Wide)
+#define PB1_LONG_US     1000000
+#define PB1_SHORT       1
+#define PB1_LONG        2
+static alt_u8 pb1_state;            // 0 = released, 1 = held, 2 = held, long press done
+static alt_timestamp_type pb1_ts;
+static alt_u8 pb1_event;
 int uart_rx_ret, rc_disable;
 
 void setup_rc()
@@ -150,6 +160,27 @@ void read_controls() {
         remote_code = 0;
 
     remote_rpt_prev = remote_rpt;
+
+    // 2nd button: press length decided here, events in pb1_event
+    pb1_event = 0;
+    if (btn_code & PB1_BIT) {
+        alt_timestamp_type now = alt_timestamp();
+        if (pb1_state == 0) {
+            pb1_state = 1;
+            pb1_ts = now;
+        } else if (now < pb1_ts) {
+            // timer restarted by the main loop
+            pb1_ts = now;
+        } else if ((pb1_state == 1) && ((now - pb1_ts) >= (alt_timestamp_type)PB1_LONG_US*(TIMER_0_FREQ/1000000))) {
+            pb1_state = 2;
+            pb1_event = PB1_LONG;
+        }
+    } else {
+        if (pb1_state == 1)
+            pb1_event = PB1_SHORT;
+        pb1_state = 0;
+    }
+    btn_code &= ~PB1_BIT;
 
     if (btn_code_prev == 0) {
         btn_code_prev = btn_code;
@@ -426,8 +457,12 @@ Prof_Hotkey_Prompt:
 Button_Check:
     if (btn_code & PB0_BIT)
         man_target_input = next_input;
-    if (btn_code & PB1_BIT)
-        tc.sl_mode = tc.sl_mode < SL_MODE_MAX ? tc.sl_mode + 1 : 0;
+    // Downscaler firmware: 2nd button = output mode / HD format (scanlines
+    // are not available)
+    if (pb1_event == PB1_SHORT)
+        tc.ds_480i = !tc.ds_480i;
+    else if (pb1_event == PB1_LONG)
+        tc.ds_720p_ar = (tc.ds_720p_ar < 2) ? (tc.ds_720p_ar + 1) : 0;
 
     // Parse UART RX buffer
     if (uart_rx_ret > 0) {

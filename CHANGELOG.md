@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Unreleased (test build 1.4.1)
------------------------------
+v1.5
+----
 
 ### New
 - 1024x768 input (60Hz, VESA standard timing 1344x806): 240p and 480i,
@@ -21,6 +21,16 @@ Unreleased (test build 1.4.1)
   use the first lines after the active picture (blank: it gets a bit
   darker); with no lines left (720p "Line phase" 2, 720p Wide phases 2-3,
   1280x960 phases 1-3) the filter is off.
+- 2nd button on the OSSC: short press = 240p / 480i, long press (1 second)
+  = next HD format (Full 16:9 / Center 4:3 / Wide). It changed the scanline
+  mode, not available in this firmware. Like the menu changes, not saved
+  until "Save settings".
+
+### Changed
+- Output PLL: VCO at least 650MHz (was 600MHz, the datasheet minimum), for
+  more margin. Same output timings; only the PLL multipliers change, with
+  some Width values (480i from 1080p / 720p Center 4:3 and Wide, 1024x768,
+  480p, 640x480; 576i from 576p; 240p from 480p).
 
 v1.4
 ----
