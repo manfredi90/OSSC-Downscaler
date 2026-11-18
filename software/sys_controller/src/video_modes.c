@@ -193,9 +193,6 @@ typedef struct {
     uint16_t width_pm;
 } ds_mode_t;
 
-#ifndef SX_ADC
-#define SX_ADC 1530
-#endif
 static const ds_mode_t ds_modes[] = {
 #ifdef DS_HD
     // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
@@ -206,14 +203,6 @@ static const ds_mode_t ds_modes[] = {
     // 4:2:2 (the line blend accumulator holds 768 pixel pairs).
     { HDMI_1080p60,    1125, 1100, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
     { HDMI_1080p60,    1125, 1100, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
-    // 1280x1024 (VESA 1688x1066, 108MHz): 2 lines per output line, 512 rows
-    // centered in the 540 (14 black lines above and below), the 5:4 picture
-    // pillarboxed in the 16:9 width (2/3 of it). Rows take 1.05 output lines
-    // of input: ~27 rows of read/write drift, so the rows are short: the ADC
-    // at 1530 samples per line (1160 active), 2 averaged, 580 pixels, 2
-    // clocks per pixel (the line length sets the width: ~1970 clocks). 1080i: field A = line 0, field B = line 1.
-    { HDMI_Unknown,    1066, SX_ADC/2, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "SXGA>540p",  0, 0, 0, 1, 0, 0, 0, 512, SX_ADC, 667 },
-    { HDMI_Unknown,    1066, SX_ADC/2, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "SXGA>1080i", 0, 0, 0, 1, 0, 0, 0, 512, SX_ADC, 667 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
