@@ -538,10 +538,9 @@ reg [10:0] ua0, ua1;
 reg uv0, uv1;
 reg ublend1;
 
-// blend accumulator: one line of units, 9 bits per channel (RGB: 1024
-// pixels, 4:2:2: 1024 pixel pairs = 1920 pixels; HD converter: the line
-// buffer gives up one M9K for it, 7936 words)
-(* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:1023];  // 4 x (256 x 36)
+// blend accumulator: one line of units, 9 bits per channel (RGB: 768
+// pixels, 4:2:2: 768 pixel pairs)
+(* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:767];   // 3 x (256 x 36)
 reg [35:0] acc_q, acc_q2;
 reg [11:0] vc0_1b, vc1_1b, vc2_1b;     // flicker filter: this line's weighted R, G, B
 reg [31:0] u1b;
@@ -628,7 +627,7 @@ reg uv2, blended_2;
 always @(posedge PCLK_CAP_i) begin
     // accumulate the lines of the blend window that are not written
     // blend RAM write (registered: each unit is written once per line)
-    acc_we <= vflt ? (uv1b & (ua1b < 11'd1024)) : (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd1024));
+    acc_we <= vflt ? (uv1b & (ua1b < 11'd768)) : (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd768));
     acc_wa <= ua1b[9:0];
     acc_wd <= vflt ? (vf_center ? {vs0[11:0], vs1[11:0], vs2[11:0]} : {vc0_1b, vc1_1b, vc2_1b}) :
               (ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
