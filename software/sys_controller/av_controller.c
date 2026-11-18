@@ -244,7 +244,11 @@ inline void TX_enable(tx_mode_t mode)
 // [bypass][high count 8][odd][low count 8]. The chain is stored so that the
 // last bit (C4 lsb) is shifted first (see pll_reconfig_top).
 #define DS_PLL_CUSTOM_ID 15
+#ifdef DS_HD
+#define DS_PLL_PCLK_MAX  80000000UL    // see pclk_5x in ossc.sdc (hd branch)
+#else
 #define DS_PLL_PCLK_MAX  66000000UL    // see pclk_5x in ossc.sdc
+#endif
 static pll_config_t ds_pll_cfg;
 static uint8_t ds_pll_active;
 
