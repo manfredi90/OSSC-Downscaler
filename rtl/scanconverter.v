@@ -427,10 +427,17 @@ linebuf_top #(
 );
 
 
+// HD converter: 1920x540 test pattern, the 720x480 generator area doubled
+// horizontally (1440 x 480 lines) and centered; the sides and the top /
+// bottom 30 lines get coordinates (0, 0) = black
+wire tp_in_win = (xpos_tp >= 13'd240) && (xpos_tp < 13'd1680) && (ypos_tp >= 11'd30) && (ypos_tp < 11'd510);
+wire [12:0] xpos_vg = tp_in_win ? ((xpos_tp - 13'd240) >> 1) : 13'd0;
+wire [10:0] ypos_vg = tp_in_win ? (ypos_tp - 11'd30) : 11'd0;
+
 videogen vg0 (
     .pclk           (PCLK_OUT_i),
-    .xpos           (xpos_tp >> 1),                   // 1440x240 test pattern ->
-    .ypos           ({ypos_tp[9:0], 1'b0}),           // 720x480 generator coords
+    .xpos           (xpos_vg[11:0]),                  // 1440x480 window ->
+    .ypos           (ypos_vg),                        // 720x480 generator coords
     .tp_sel         (misc_config[10:9]),              // test pattern (stock reverse LPF bits)
     .R_out          (R_vg),
     .G_out          (G_vg),

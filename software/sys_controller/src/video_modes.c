@@ -188,8 +188,14 @@ typedef struct {
     // ADC samples per line when not the source pixel clock (0 = source
     // h_total): 1280x1024 has no exact output PLL ratio at 1688
     uint16_t adc_h_total;
+    // HD converter: picture width in per mille of the 16:9 width (0 = 1000;
+    // 1280x1024: 5:4 in 16:9, pillarboxed)
+    uint16_t width_pm;
 } ds_mode_t;
 
+#ifndef SX_ADC
+#define SX_ADC 1530
+#endif
 static const ds_mode_t ds_modes[] = {
 #ifdef DS_HD
     // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
@@ -200,6 +206,14 @@ static const ds_mode_t ds_modes[] = {
     // 4:2:2 (the line blend accumulator holds 768 pixel pairs).
     { HDMI_1080p60,    1125, 1100, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
     { HDMI_1080p60,    1125, 1100, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
+    // 1280x1024 (VESA 1688x1066, 108MHz): 2 lines per output line, 512 rows
+    // centered in the 540 (14 black lines above and below), the 5:4 picture
+    // pillarboxed in the 16:9 width (2/3 of it). Rows take 1.05 output lines
+    // of input: ~27 rows of read/write drift, so the rows are short: the ADC
+    // at 1530 samples per line (1160 active), 2 averaged, 580 pixels, 2
+    // clocks per pixel (the line length sets the width: ~1970 clocks). 1080i: field A = line 0, field B = line 1.
+    { HDMI_Unknown,    1066, SX_ADC/2, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "SXGA>540p",  0, 0, 0, 1, 0, 0, 0, 512, SX_ADC, 667 },
+    { HDMI_Unknown,    1066, SX_ADC/2, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "SXGA>1080i", 0, 0, 0, 1, 0, 0, 0, 512, SX_ADC, 667 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
@@ -458,8 +472,15 @@ static int ds_t0_window_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
 //  - groups of 4 (1080p, 1280x960/1024, 720p Wide): A = lines 0-2, B = 2-4
 //    (levels 1-2) or A = 0-3, B = 2-5 (levels 3-4)
 //  - groups of 3 (720p, 1024x768): A = lines 0-2, B = 2-3 (all levels)
+#ifdef DS_HD
+// HD converter, 1080i (groups of 2): A = lines 0-1, B = lines 1-2 (field B
+// groups 1 line later), all levels
+#define DS_HD_FLT(m, cc)    ((m)->ilace && (m)->t0_auto && !(m)->rgb444 && ((m)->vdec == 1) && \
+                             (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
+#else
 #define DS_HD_FLT(m, cc)    ((m)->ilace && (m)->t0_auto && !(m)->rgb444 && (((m)->vdec == 2) || ((m)->vdec == 3)) && \
                              (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
+#endif
 
 // Line written in each group (st, 0..vdec) and number of lines averaged into
 // it (n, ending at st), for field A (240p: every field) and field B (480i);
@@ -486,11 +507,16 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
         int g = m->vdec+1, k = DS_OUT_V_ROWS(m), p = cc->ds_vphase % g;
         int fp = vm_in->timings.v_total - vm_in->timings.v_synclen - vm_in->timings.v_backporch - vm_in->timings.v_active;
         int avail = vm_in->timings.v_active - 1 + ((fp > 2) ? 2 : ((fp > 0) ? fp : 0));
-        int base = m->v_start + p + g*(k-1) + 2;
+        int fbofs = (m->vdec == 1) ? 1 : 2;
+        int base = m->v_start + p + g*(k-1) + fbofs;
         int c;
         for (c = 0; c < 2; c++) {
             int sa, na, sb, nb;
-            if (m->vdec == 3) {
+            if (m->vdec == 1) {
+                if (c)
+                    break;
+                sa = 1; na = 2; sb = 1; nb = 2;
+            } else if (m->vdec == 3) {
                 na = nb = ((cc->ds_flicker >= 3) && (c == 0)) ? 4 : 3;
                 sa = sb = na - 1;
             } else {
@@ -500,7 +526,7 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
             }
             if (base + sb <= avail) {
                 *st_a = sa; *n_a = na; *st_b = sb; *n_b = nb;
-                *bofs = 2;
+                *bofs = fbofs;
                 *ext = (base + sb > vm_in->timings.v_active - 1) ? (base + sb - (vm_in->timings.v_active - 1)) : 0;
                 return;
             }
@@ -557,7 +583,11 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
     int found = 0;
 
     oh_min = (act*1000 + 879)/880;      // active <= 88% of the line
+#ifdef DS_HD
+    oh_max = (act*1000)/450;            // active >= 45% (pillarboxed 5:4)
+#else
     oh_max = (act*1000)/600;            // active >= 60%
+#endif
     if (oh_max > DS_OUT_H_TOTAL_MAX)
         oh_max = DS_OUT_H_TOTAL_MAX;
 
@@ -757,7 +787,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
 #ifdef DS_HD
         // "Width": 100% = 1920 / 2200 clocks of the line (1080i standard)
-        uint32_t target_pm = 873 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
+        // (times the row's picture width, pillarboxed sources)
+        uint32_t target_pm = ((873 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO)) * (m->width_pm ? m->width_pm : 1000) + 500)/1000;
 #else
         // "Width": 100% = 80% of the line
         uint32_t target_pm = 800 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
@@ -798,7 +829,15 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         // back and front porch (the H. position limits still apply)
         out_active_max = out_active;
 #ifdef DS_HD
-        out_h_bp_min = ((m->out_h_total - out_h_synclen - out_active)*5)/8;
+        {
+            // centered in the 1080i active window (back porch 148, 1920
+            // active of 2200 clocks): pillarboxed pictures stay centered
+            int std_bp = (m->out_h_total*148 + 1100)/2200;
+            int std_act = (m->out_h_total*1920 + 1100)/2200;
+            int bp = std_bp + (std_act - (int)out_active)/2;
+            int bp_lo = (m->out_h_total*40 + 500)/1000;
+            out_h_bp_min = (bp < bp_lo) ? bp_lo : bp;
+        }
 #else
         out_h_bp_min = ((m->out_h_total - out_h_synclen - out_active)*3)/4;
 #endif
@@ -1462,6 +1501,20 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
     memset(vm_conf, 0, sizeof(vm_proc_config_t));
     memset(vm_in, 0, sizeof(mode_data_t));
 
+#ifdef DS_HD
+    // HD converter: 540p test pattern (1080i line timing, 2200 x 562 at
+    // 74.25MHz = 27MHz * 99 / (3 * 12), see show_safe_screen)
+    for (i=0; i<num_video_modes_plm; i++) {
+        if (video_modes_plm_default[i].vic == HDMI_1080i60)
+            break;
+    }
+    memcpy(vm_out, &video_modes_plm_default[i], sizeof(mode_data_t));
+    vm_out->timings.v_total = 562;
+    vm_out->timings.interlaced = 0;
+    vm_out->vic = HDMI_Unknown;
+    vm_out->ar.h = 16;
+    vm_out->ar.v = 9;
+#else
     for (i=0; i<num_video_modes_plm; i++) {
         if (video_modes_plm_default[i].vic == HDMI_240p60)
             break;
@@ -1470,6 +1523,7 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
     vmode_hv_mult(vm_out, 2, 1);    // 858 -> 1716 clocks at 27MHz
     vm_out->ar.h = 4;
     vm_out->ar.v = 3;
+#endif
     vm_conf->ds_csync = cc->ds_csync;
 }
 

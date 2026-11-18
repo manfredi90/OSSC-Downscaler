@@ -461,8 +461,10 @@ Button_Check:
     // are not available)
     if (pb1_event == PB1_SHORT)
         tc.ds_480i = !tc.ds_480i;
+#ifndef DS_HD
     else if (pb1_event == PB1_LONG)
         tc.ds_720p_ar = (tc.ds_720p_ar < 2) ? (tc.ds_720p_ar + 1) : 0;
+#endif
 
     // Parse UART RX buffer
     if (uart_rx_ret > 0) {

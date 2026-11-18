@@ -103,7 +103,11 @@ static const char* const ds_range_desc[] = { "Full (0-255)", "Lim. (16-235)", "L
 static const char* const ds_tp_desc[] = { "Gray", "Grid", "Monoscope", "RGB" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3", "Wide" };
 static const char* const on_off_desc[] = { "On", "Off" };   // for *_off settings
+#ifdef DS_HD
+static const char* const ds_out_desc[] = { "540p", "1080i" };
+#else
 static const char* const ds_out_desc[] = { "240p", "480i" };
+#endif
 static const char* const ds_480p_in_desc[] = { "Auto", "720x480", "640x480" };
 static const char* const ds_i2p_desc[] = { "Passthru", "240p" };
 static const char* const ds_flicker_desc[] = { "Off", "1", "2", "3", "4" };
@@ -278,17 +282,25 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "HDMI range",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_out_range, OPT_WRAP,   SETTING_ITEM(ds_range_desc) } } },
+#ifdef DS_HD
+    // HD converter: no 15kHz-specific options (480p input selector: with
+    // 480p support), 1080i flicker filter Off / On
+    { "Flicker filter",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_flicker,   OPT_WRAP,   SETTING_ITEM(off_on_desc) } } },
+#else
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
     { "15kHz input",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p,       OPT_WRAP,   SETTING_ITEM(ds_i2p_desc) } } },
     { "Flicker filter",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_flicker,   OPT_WRAP,   SETTING_ITEM(ds_flicker_desc) } } },
     { "HD format",                              OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_720p_ar_desc) } } },
+#endif
     { "Line blending",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_vblend_off, OPT_WRAP,   SETTING_ITEM(on_off_desc) } } },
     { "Line phase",                             OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vphase,     OPT_WRAP, 0, 3, value_disp } } },
     { "Width",                                  OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_width,      OPT_NOWRAP, DS_WIDTH_MIN, DS_WIDTH_MAX, ds_width_disp } } },
     { "H. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_hpos,       OPT_NOWRAP, DS_HPOS_MIN, DS_HPOS_MAX, signed_disp } } },
     { "V. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vpos,       OPT_NOWRAP, DS_VPOS_MIN, DS_VPOS_MAX, signed_disp } } },
     { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },
+#ifndef DS_HD
     { "Test pattern",                           OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_tp_sel,    OPT_WRAP,   SETTING_ITEM(ds_tp_desc) } } },
+#endif
 }))
 
 

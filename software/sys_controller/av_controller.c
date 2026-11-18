@@ -301,7 +301,13 @@ int pll_reconfigure(uint8_t mult, uint32_t pclk_i_hz, uint8_t bwsel)
     static pll_config_t loaded_custom;
 
     if (ds_pll_active || (mult > 1) || ((bwsel == 1) && (pclk_i_hz < 40000000UL)) || (cm.avinput == AV_TESTPAT) || ds_safe_screen) {
+#ifdef DS_HD
+        // HD converter: the 540p test pattern also runs on the custom
+        // config (74.25MHz from 27MHz, made by ds_tp_pll)
+        if (ds_safe_screen || (ds_pll_active && (cm.avinput != AV_TESTPAT)))
+#else
         if (ds_pll_active && (cm.avinput != AV_TESTPAT) && !ds_safe_screen)
+#endif
             id = DS_PLL_CUSTOM_ID;
         else if ((mult == 2) && (pclk_i_hz > 50000000UL))
             id = ((bwsel+1)*7) - 1;
@@ -739,6 +745,17 @@ void update_sc_config()
     sc->sl_config3 = sl_config3;
 }
 
+#ifdef DS_HD
+// HD converter: the test pattern runs at 74.25MHz = 27MHz * 99 / (3 * 12)
+// (phase detector 9MHz, VCO 891MHz), 540p (2200 x 562 clocks, 33.75kHz)
+static void ds_tp_pll(void)
+{
+    ds_pll_make(3, 99, 12, &ds_pll_cfg);
+    cm.pclk_o_hz = 74250000UL;
+    pll_reconfigure(1, cm.pclk_o_hz, 0);
+}
+#endif
+
 // Downscaler firmware: output the internal 240p test pattern (15.73kHz, from
 // the fixed 27MHz reference) instead of the input. Used at boot, without sync,
 // for inputs that would not produce a 15kHz output, and if the hardware
@@ -757,8 +774,12 @@ void show_safe_screen(const char *reason)
 
     ds_pll_active = 0;
     get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
+#ifdef DS_HD
+    ds_tp_pll();
+#else
     cm.pclk_o_hz = 27000000UL;
     pll_reconfigure(1, cm.pclk_o_hz, 0);    // PLL 1x from 27MHz
+#endif
     update_osd_size(&vmode_out);
     update_sc_config();
     TX_SetPixelRepetition(0, 0);
@@ -1097,9 +1118,12 @@ int init_hw()
 
     update_settings(1);
 
-    // Setup test pattern (240p, 15kHz)
+    // Setup test pattern (240p, 15kHz; HD converter: 540p)
     ds_safe_screen = 1;
     get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
+#ifdef DS_HD
+    ds_tp_pll();
+#endif
     update_sc_config();
 
     // init always in HDMI mode (fixes yellow screen bug)
