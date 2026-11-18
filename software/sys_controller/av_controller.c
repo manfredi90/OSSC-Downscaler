@@ -846,7 +846,8 @@ void program_mode()
         }
     }
 
-    // Downscaler firmware: never output anything but 15kHz
+    // Downscaler firmware: never output anything but 15kHz (HD converter:
+    // 33-34.5kHz, see DS_HFREQ_MIN/MAX)
     {
         uint32_t out_hfreq = cm.pclk_o_hz / ((vm_conf.tx_pixelrep+1) * vmode_out.timings.h_total);
         printf("Output line rate: %luHz\n", out_hfreq);
@@ -1145,7 +1146,11 @@ void print_vm_stats() {
         sniprintf(lrow2, LCD_ROW_LEN+1, "R%03u P%04u/%04u", (unsigned)((st >> 14) & 0xff), (unsigned)((st >> 22) & 0x3ff), (unsigned)(ds_fperiod_exp & 0x3ff));
     } else {
         sniprintf(lrow1, LCD_ROW_LEN+1, "No mode");
+#ifdef DS_HD
+        sniprintf(lrow2, LCD_ROW_LEN+1, "HD conv. %s", DS_VERSION);
+#else
         sniprintf(lrow2, LCD_ROW_LEN+1, "Downscaler %s", DS_VERSION);
+#endif
     }
     lcd_write(lrow1, lrow2);
 
@@ -1169,7 +1174,11 @@ void print_vm_stats() {
         sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "Line rate:");
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "%lu Hz", cm.pclk_o_hz / ((vm_conf.tx_pixelrep+1) * vmode_out.timings.h_total));
         sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "FW:");
+#ifdef DS_HD
+        sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "HD converter %s", DS_VERSION);
+#else
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, "Downscaler %s", DS_VERSION);
+#endif
         sniprintf((char*)osd->osd_array.data[++row][0], OSD_CHAR_COLS, "FW date:");
         sniprintf((char*)osd->osd_array.data[row][1], OSD_CHAR_COLS, __DATE__);
 
@@ -1287,9 +1296,17 @@ int main(int argc, char **argv, char **envp)
 
     if (init_stat >= 0) {
         printf("### DIY VIDEO DIGITIZER / SCANCONVERTER INIT OK ###\n\n");
+#ifdef DS_HD
+        strncpy(row1, "OSSC HD convert.", LCD_ROW_LEN+1);
+#else
         strncpy(row1, "OSSC  Downscaler", LCD_ROW_LEN+1);
+#endif
 #ifndef DEBUG
+#ifdef DS_HD
+        sniprintf(row2, LCD_ROW_LEN+1, "HD v%s 540p/i", DS_VERSION);
+#else
         sniprintf(row2, LCD_ROW_LEN+1, "DS v%s 15kHz", DS_VERSION);   // fits 16 chars with x.y.z versions
+#endif
 #else
         strncpy(row2, "** DEBUG BUILD *", LCD_ROW_LEN+1);
 #endif

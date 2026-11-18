@@ -195,10 +195,20 @@ typedef struct {
     uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 
+// HD converter build (branch hd): 1080p -> 540p / 1080i at ~33.75kHz
+// instead of the 15kHz downscaler outputs
+#define DS_HD               1
+
 // Allowed output line rate range (Hz). Anything else is never output.
+#ifdef DS_HD
+// 540p / 1080i: 33.7-33.75kHz (the FPGA watchdog allows 31.0-34.5kHz)
+#define DS_HFREQ_MIN        33000
+#define DS_HFREQ_MAX        34500
+#else
 // output line rate limits (Hz): older 15kHz monitors may not sync outside
 #define DS_HFREQ_MIN        14800
 #define DS_HFREQ_MAX        16000
+#endif
 
 typedef enum {
     DS_CSYNC_OFF = 0,

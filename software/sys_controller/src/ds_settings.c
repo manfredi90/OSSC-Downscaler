@@ -19,13 +19,18 @@
 #include <stdio.h>
 #include "system.h"
 #include "ds_settings.h"
+#include "video_modes.h"
 #include "flash.h"
 #include "avconfig.h"
 #include "av_controller.h"
 #include "controls.h"
 #include "utils.h"
 
+#ifdef DS_HD
+#define DS_SETTINGS_MAGIC   0x4F534844  // "OSHD": the HD converter keeps its own settings
+#else
 #define DS_SETTINGS_MAGIC   0x4F534453  // "OSDS"
+#endif
 #define DS_SETTINGS_VERSION 4     // 2: v0.12-v0.16, 3: v1.0-v1.3 (migrated on load)
 
 typedef struct {

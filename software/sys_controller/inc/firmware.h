@@ -27,7 +27,9 @@
 #define FW_VER_MINOR            22
 
 // Downscaler firmware version (shown at boot)
-#define DS_VERSION              "1.5"
+#define DS_VERSION              "0.1"
+// firmware image name: ossc_<DS_FW_TAG>_v<DS_VERSION>.bin
+#define DS_FW_TAG               "hd"
 
 #ifdef OSDLANG_JP
 #define FW_SUFFIX              "j"

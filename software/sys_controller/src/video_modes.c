@@ -191,6 +191,16 @@ typedef struct {
 } ds_mode_t;
 
 static const ds_mode_t ds_modes[] = {
+#ifdef DS_HD
+    // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
+    // lines, one field per input frame, 33.75kHz). 2 lines per output line:
+    // 540p = the 2 lines averaged (or line 0 without line blending); 1080i:
+    // field A = line 0, field B = line 1 of each pair. 1920 pixels sampled at
+    // 148.5MHz, 2 averaged: 960 pixels, 2 clocks per pixel (74.25MHz), YCbCr
+    // 4:2:2 (the line blend accumulator holds 768 pixel pairs).
+    { HDMI_1080p60,    1125, 1100, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
+    { HDMI_1080p60,    1125, 1100, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
+#else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
     { HDMI_720p60,      750,  655, 1875, 262, 2, 2, 2, 19, 0,   0, 0, 0, 0, 0, 0, "720p>240p" },
@@ -294,15 +304,29 @@ static const ds_mode_t ds_modes[] = {
     // VGA: native sampling (800/line, 640 active)
     { HDMI_640x480p60,  525,  800, 1600, 525, 1, 1, 1, 16, 0,   0, 0, 0, 1, 1, 1, "VGA>480i" },
     { HDMI_640x480p60,  525,  800, 3200, 525, 1, 3, 1, 16, 0,   0, 0, 1, 1, 1, 1, "VGA>480i" },
+#endif
 };
 
+#ifdef DS_HD
+// 1080i (SMPTE 274M) per field: vsync 5, back porch 15, 540 active, front
+// porch 2 (+0.5); 540p: the same, 562 lines
+#define DS_OUT_V_SYNCLEN    5
+#define DS_OUT_V_ACTIVE     540
+#define DS_OUT_V_FPORCH     2
+#define DS_OUT_V_BPORCH_MIN 6
+#else
 #define DS_OUT_V_SYNCLEN    3
 #define DS_OUT_V_ACTIVE     240
 #define DS_OUT_V_FPORCH     3   // blank lines before vsync (pre-equalizing pulses)
 #define DS_OUT_V_BPORCH_MIN 4   // blank lines after vsync (post-equalizing pulses + 1)
+#endif
 
 #define DS_OUT_H_TOTAL_MAX  4095
+#ifdef DS_HD
+#define DS_PLL_OUT_MAX_KHZ  80000   // see pclk_5x in ossc.sdc (hd branch)
+#else
 #define DS_PLL_OUT_MAX_KHZ  66000   // see pclk_5x in ossc.sdc
+#endif
 // Cyclone IV PLL: phase detector input >= 5MHz (datasheet). The scan chain
 // reuses the charge pump / loop filter bits of the stock low bandwidth
 // configs (M = 100-120), so M is kept in a similar range: v0.16 used
@@ -316,7 +340,11 @@ static const ds_mode_t ds_modes[] = {
 #define DS_OUT_V_FIELD_ACT(m) ((m)->pal ? DS_OUT_V_ACTIVE_PAL : DS_OUT_V_ACTIVE)
 #define DS_OUT_V_ROWS(m)    ((m)->rows ? (m)->rows : ((m)->wide ? 180 : DS_OUT_V_FIELD_ACT(m)))
 // output lines per frame in 480i / 576i
+#ifdef DS_HD
+#define DS_OUT_ILACE_LINES(m) 1125
+#else
 #define DS_OUT_ILACE_LINES(m) ((m)->pal ? 625 : 525)
+#endif
 // 480p / VGA -> 480i flicker filter: RGB rows with groups of 2 lines
 #define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
@@ -516,7 +544,11 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                         uint32_t fin_khz, uint32_t hin, uint32_t vin, uint8_t ilace, uint32_t act, uint32_t target_pm,
                         uint8_t fixed_lines, uint16_t *oh_o, uint16_t *lines_o, uint16_t *n_o, uint16_t *m_o, uint16_t *c_o) {
     ds_mode_t cand;
+#ifdef DS_HD
+    static const uint16_t lines_ntsc[] = {562, 563, 561, 564, 560};
+#else
     static const uint16_t lines_ntsc[] = {262, 264, 260, 261, 263};
+#endif
     static const uint16_t lines_pal[] = {312, 314, 310, 311, 313};
     const uint16_t *lines_opt = row->pal ? lines_pal : lines_ntsc;
     uint32_t ilace_lines = DS_OUT_ILACE_LINES(row);
@@ -685,6 +717,10 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     if (m->t0_auto) {
         uint16_t sk = ds_hskip1(m);
         smp_active = vm_in->timings.h_active/sk;
+        // YCbCr 4:2:2: an even number of pixels (an odd last pixel would
+        // take its chroma from the blanking)
+        if (!m->rgb444 && (smp_active & 1))
+            smp_active--;
         vm_in->timings.h_synclen = (vm_in->timings.h_synclen + sk/2)/sk;
         vm_in->timings.h_backporch = (vm_in->timings.h_backporch + sk/2)/sk;
     } else {
@@ -719,8 +755,13 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     if (m->t0_auto) {
         // output line length / PLL ratio for the requested width
         uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
+#ifdef DS_HD
+        // "Width": 100% = 1920 / 2200 clocks of the line (1080i standard)
+        uint32_t target_pm = 873 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
+#else
         // "Width": 100% = 80% of the line
         uint32_t target_pm = 800 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
+#endif
         uint16_t oh, lines, n, mm, c;
 
         if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
@@ -739,9 +780,15 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         m = &me;
     }
 
+#ifdef DS_HD
+    // 1080i horizontal timings: hsync 44 of 2200 clocks, back porch 148,
+    // front porch 88 (back porch = 5/8 of the blanking after the sync)
+    out_h_synclen = (m->out_h_total*20 + 500)/1000;
+#else
     // 15kHz horizontal timings, in fractions of the 63.6us line:
     // hsync 4.7us, back porch >= 5.15us, front porch >= 1.4us
     out_h_synclen = (m->out_h_total*74 + 500)/1000;   // 9-bit field (up to 511)
+#endif
     out_h_bp_min = (m->out_h_total*81 + 500)/1000;
     out_h_fp_min = (m->out_h_total*22 + 500)/1000;
     out_active_max = ((m->out_h_total - out_h_synclen - out_h_bp_min - out_h_fp_min)/rpt)*rpt;
@@ -750,7 +797,11 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         // every stored pixel is shown; the blanking is split 3:1 between
         // back and front porch (the H. position limits still apply)
         out_active_max = out_active;
+#ifdef DS_HD
+        out_h_bp_min = ((m->out_h_total - out_h_synclen - out_active)*5)/8;
+#else
         out_h_bp_min = ((m->out_h_total - out_h_synclen - out_active)*3)/4;
+#endif
     } else if (out_active > out_active_max) {
         out_active = out_active_max;    // crop the sides evenly
     }
@@ -830,10 +881,17 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         ds_hofs = hofs;
     }
     vm_out->timings.interlaced = !!m->ilace;
+#ifdef DS_HD
+    vm_out->type = VIDEO_HDTV;
+    vm_out->ar.h = 16;
+    vm_out->ar.v = 9;
+    vm_out->vic = m->ilace ? HDMI_1080i60 : HDMI_Unknown;
+#else
     vm_out->type = VIDEO_SDTV;
     vm_out->ar.h = 4;
     vm_out->ar.v = 3;
     vm_out->vic = HDMI_Unknown;
+#endif
 
     vm_conf->x_rpt = m->x_rpt;
     vm_conf->y_rpt = 0;
@@ -869,7 +927,21 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
             vm_conf->ds_vflt = 1;
             vm_conf->ds_vflt_a = cc->ds_flicker;
         }
-        // lines after the active ones used by the last field B row
+        // lines after the active ones used by the last row (flicker filters,
+        // or "Line phase" with groups ending at the last active line: up to
+        // 4 front porch lines, blank)
+        {
+            int g = m->vdec+1, k = DS_OUT_V_ROWS(m), p = cc->ds_vphase % g;
+            int fp = vm_in->timings.v_total - vm_in->timings.v_synclen - vm_in->timings.v_backporch - vm_in->timings.v_active;
+            int last = m->v_start + p + g*(k-1) + ((st_a > st_b+bofs) ? st_a : (m->ilace ? st_b+bofs : st_a));
+            int need = last - (vm_in->timings.v_active - 1);
+            if (fp > 4)
+                fp = 4;
+            if (need > fp)
+                need = fp;
+            if (need > ext)
+                ext = need;
+        }
         vm_in->timings.v_active += ext;
     }
     vm_conf->ds_hfilt = m->hfilt;

@@ -361,13 +361,15 @@ begin
     pll_clkswitch <= (pll_activeclock != enable_sc);
 end
 
-// 15kHz output watchdog (independent of the CPU).
-// Measures the period of the generated HSYNC with the fixed 27MHz clock. If
-// 16 consecutive lines are shorter than WD_MIN_LINE_CLKS (i.e. line rate above
-// ~16.4kHz), all syncs and video are suppressed until 16 consecutive lines are
-// back in range. A 15kHz TV without sync just free-runs, which is harmless.
-// (The firmware itself never programs more than 16.0kHz.)
-localparam WD_MIN_LINE_CLKS = 12'd1646;     // 27MHz / 1646 = 16.4kHz
+// Output line rate watchdog (independent of the CPU).
+// Measures the period of the generated HSYNC with the fixed 27MHz clock.
+// HD converter build: if 16 consecutive lines are outside 31.0-34.5kHz
+// (shorter than WD_MIN_LINE_CLKS or longer than WD_MAX_LINE_CLKS), all syncs
+// and video are suppressed until 16 consecutive lines are back in range: the
+// monitor never gets anything but 540p / 1080i line rates (the 15kHz test
+// pattern included). (The firmware itself programs 33.0-34.5kHz only.)
+localparam WD_MIN_LINE_CLKS = 12'd783;      // 27MHz / 783 = 34.5kHz
+localparam WD_MAX_LINE_CLKS = 12'd871;      // 27MHz / 871 = 31.0kHz
 reg [2:0] wd_hs_sync;
 reg [11:0] wd_line_ctr;
 reg [3:0] wd_fast_cnt, wd_ok_cnt;
@@ -377,7 +379,7 @@ reg wd_kill_sync1_reg, wd_kill_sync2_reg;
 always @(posedge clk27) begin
     wd_hs_sync <= {wd_hs_sync[1:0], HSYNC_sc};
     if (wd_hs_sync[2] & ~wd_hs_sync[1]) begin
-        if (wd_line_ctr < WD_MIN_LINE_CLKS) begin
+        if ((wd_line_ctr < WD_MIN_LINE_CLKS) || (wd_line_ctr > WD_MAX_LINE_CLKS)) begin
             wd_ok_cnt <= 4'h0;
             if (wd_fast_cnt == 4'hf)
                 wd_kill <= 1'b1;
