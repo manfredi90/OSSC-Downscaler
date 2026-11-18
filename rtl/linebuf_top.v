@@ -56,20 +56,25 @@ module linebuf_top (
     input [9:0] ds_field_cfg,
     input ds_ilace,
     input in_field,             // input frame parity (output clock domain)
-    // 480p -> 480i flicker filter (RGB storage, groups of 2 lines, st = 1):
-    // each field row is a*L(c-1) + (16-2a)*L(c) + a*L(c+1) (1/16) around its
-    // center line c (group position 0), written at the next line (position
-    // 1). The two field rows that share a line overlap there: the end of one
-    // and the start of the next are handled in the same blend RAM
-    // read-modify-write. The blend RAM holds 3 x 12 bits per pixel. Field B
-    // groups start one line later (vflt_bofs) so that its rows are centered
-    // on the odd lines. The first row of a field has no line before it: its
-    // center weight is 16-a.
-    input vflt,
-    // field B groups start vflt_bofs lines later (0-3): 1 for the 480p flicker
-    // filter above, 2 for the HD 480i flicker filter (rows of 3-4 lines)
+    // HD converter, 720p -> 540p / 1080i (YCbCr 4:2:2, groups of 4 lines,
+    // ds_vdec = 3): 3 rows per group, each a weighted sum of 2 lines (or a
+    // single line). Every line ends a row and/or starts the next one, in the
+    // same blend RAM read-modify-write (weights in 1/64):
+    //   row = (acc*32 + a*L + 32) / 64   (L alone when the previous line
+    //                                     started no row, or at frame start)
+    //   acc = b*L / 32
+    //  540p, area weights (rows at lines 1/6, 3/2, 17/6 of the group):
+    //   L0 start 48 | L1 end 16, start 32 | L2 end 32, start 16 | L3 end 48
+    //  1080i field A (rows at -1/3, 1, 7/3, linear interpolation):
+    //   L0 end 43 | L1 alone | L2 start 43 | L3 end 21, start 21
+    //  1080i field B (rows at 1/3, 5/3, 3):
+    //   L0 start 43 | L1 end 21, start 21 | L2 end 43 | L3 alone
+    // The first row of a frame is written at group position 1 (540p, field
+    // B) or 0 (field A): ds_field_cfg st.
+    input w43,
+    // field B groups start vflt_bofs lines later (0-3): 1 for the 1080i
+    // flicker filter (1080p, groups of 2)
     input [1:0] vflt_bofs,
-    input [4:0] vflt_a,
 
     // layout 3 (YCbCr 4:2:2, or RGB one pixel per word with lb_rgb): words
     // per line, number of lines, read base
@@ -292,15 +297,8 @@ wire lb422 = lbs & ~lb_rgb;
 reg [12:0] linebuf_rdaddr;
 reg wr_x_ok;
 always @(*) begin
+    // (HD converter: layouts 1 and 2 are not used)
     case (lb_layout)
-        2'h1: begin
-            linebuf_rdaddr = {ypos_lb[2:0], xpos_lb[9:0]};
-            wr_x_ok = (xpos_i[10] == 1'b0);
-        end
-        2'h2: begin
-            linebuf_rdaddr = {ypos_lb[3:0], xpos_lb[8:0]};
-            wr_x_ok = (xpos_i[10:9] == 2'b00);
-        end
         2'h3: begin
             linebuf_rdaddr = lb_rd_base + (lb_rgb ? {2'h0, xpos_lb} : {3'h0, xpos_lb[10:1]});
             wr_x_ok = 1'b1;
@@ -396,41 +394,57 @@ wire blend_en = ds_mode & (n_blend > 3'h1);
 reg [2:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
-reg ds_halve;               // per line: 4-line blend, 3rd line (keep sum/2 in 9 bits)
-reg vf_center, vf_first;    // per line: flicker filter center line / first one of the field
-reg [4:0] vf_w;             // per line: flicker filter weight of this line (1/16)
+reg w_end, w_start, w_av;   // per line (720p): ends a row / starts one / a row was started on the previous line
+reg [5:0] w_a, w_b;         // per line (720p): weights of the ended / started row (1/64)
 
 // (registered: they change once per input frame, in the vertical blanking)
 reg [10:0] grp_start, first_store;
-reg [4:0] vf_wc, vf_wf;     // flicker filter center line weights: 16-2a, first row 16-a
 always @(posedge PCLK_CAP_i) begin
     grp_start <= {5'h0, ds_vstart} + {9'h0, fld_b ? vflt_bofs : 2'b0};
     first_store <= {5'h0, ds_vstart} + {9'h0, fld_b ? vflt_bofs : 2'b0} + {8'h0, st_gpos};
-    vf_wc <= 5'd16 - {vflt_a[3:0], 1'b0};
-    vf_wf <= 5'd16 - vflt_a;
 end
+
+// 720p weights for a group position: {end, start, a, b} (see the w43 port)
+function [13:0] w43_tab;
+    input il, fb;
+    input [1:0] g;
+    case ({il, fb, g})
+        4'b1000: w43_tab = {1'b1, 1'b0, 6'd43, 6'd0};
+        4'b1001: w43_tab = {1'b1, 1'b0, 6'd0,  6'd0};
+        4'b1010: w43_tab = {1'b0, 1'b1, 6'd0,  6'd43};
+        4'b1011: w43_tab = {1'b1, 1'b1, 6'd21, 6'd21};
+        4'b1100: w43_tab = {1'b0, 1'b1, 6'd0,  6'd43};
+        4'b1101: w43_tab = {1'b1, 1'b1, 6'd21, 6'd21};
+        4'b1110: w43_tab = {1'b1, 1'b0, 6'd43, 6'd0};
+        4'b1111: w43_tab = {1'b1, 1'b0, 6'd0,  6'd0};
+        default: case (g)       // 540p
+            2'h0: w43_tab = {1'b0, 1'b1, 6'd0,  6'd48};
+            2'h1: w43_tab = {1'b1, 1'b1, 6'd16, 6'd32};
+            2'h2: w43_tab = {1'b1, 1'b1, 6'd32, 6'd16};
+            default: w43_tab = {1'b1, 1'b0, 6'd48, 6'd0};
+        endcase
+    endcase
+endfunction
 // ds_vdec = 7: groups of 1 line (HD converter, 480p 1:1), as ds_vdec = 0 in
 // the group logic but in downscaler mode
 wire [2:0] ds_vdec_e = (ds_vdec == 3'd7) ? 3'd0 : ds_vdec;
 wire [2:0] next_gpos = (ypos_i == grp_start) ? 3'h0 : ((ds_gpos == ds_vdec_e) ? 3'h0 : ds_gpos + 3'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
+wire [13:0] w_next = w43_tab(ds_ilace, fld_b, next_gpos[1:0]);
 
 // stages A/B: horizontal filter
-reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b, R_c, G_c, B_c, R_d, G_d, B_d;
+// (HD converter: average of 2 ADC samples or none; no 4-sample average)
+reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b;
 reg [10:0] x_a, x_b;
 reg v_a, v_b;
 reg [7:0] Rr_b, Gr_b, Br_b;
-reg [8:0] s2R_b, s2G_b, s2B_b, s2R_cd, s2G_cd, s2B_cd;
-wire [9:0] s4R = {1'b0, s2R_b} + {1'b0, s2R_cd};
-wire [9:0] s4G = {1'b0, s2G_b} + {1'b0, s2G_cd};
-wire [9:0] s4B = {1'b0, s2B_b} + {1'b0, s2B_cd};
+reg [8:0] s2R_b, s2G_b, s2B_b;
 reg [7:0] R_h, G_h, B_h;
 always @(*) begin
-    case (ds_hfilt)
-        2'h1: {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
-        2'h2: {R_h, G_h, B_h} = {s4R[9:2], s4G[9:2], s4B[9:2]};
-        default: {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
-    endcase
+    if (ds_hfilt == 2'h1)
+        {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
+    else
+        {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
 end
 
 // stage 1 registers
@@ -446,8 +460,6 @@ always @(posedge PCLK_CAP_i) begin
     // stage A
     {R_a, G_a, B_a} <= {R_i, G_i, B_i};
     {R_b, G_b, B_b} <= {R_a, G_a, B_a};
-    {R_c, G_c, B_c} <= {R_b, G_b, B_b};
-    {R_d, G_d, B_d} <= {R_c, G_c, B_c};
     x_a <= xpos_i;
     v_a <= DE_i & datavalid_i & wr_x_ok;
 
@@ -455,9 +467,6 @@ always @(posedge PCLK_CAP_i) begin
     s2R_b <= {1'b0, R_a} + {1'b0, R_b};
     s2G_b <= {1'b0, G_a} + {1'b0, G_b};
     s2B_b <= {1'b0, B_a} + {1'b0, B_b};
-    s2R_cd <= {1'b0, R_c} + {1'b0, R_d};
-    s2G_cd <= {1'b0, G_c} + {1'b0, G_d};
-    s2B_cd <= {1'b0, B_c} + {1'b0, B_d};
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
     x_b <= x_a;
     v_b <= v_a;
@@ -468,7 +477,7 @@ always @(posedge PCLK_CAP_i) begin
         ds_store <= 1'b1;
         ds_first <= 1'b1;
         ds_inblend <= 1'b0;
-        ds_halve <= 1'b0;
+        w_av <= 1'b0;
         if (ypos_i == 0) begin
             ypos_wraddr <= 0;
         end else if (ypos_i != ypos_prev) begin
@@ -485,7 +494,7 @@ always @(posedge PCLK_CAP_i) begin
         if (ypos_i == first_store) begin
             ypos_wraddr <= 0;
             ds_store <= 1'b1;
-        end else if ((ypos_i > first_store) && (next_gpos == st_gpos)) begin
+        end else if ((ypos_i > first_store) && (w43 ? w_next[13] : (next_gpos == st_gpos))) begin
             ds_store <= 1'b1;
             if (ypos_wraddr == lb_num-1'b1)
                 ypos_wraddr <= 0;
@@ -496,11 +505,10 @@ always @(posedge PCLK_CAP_i) begin
         end
 
         ds_first <= (next_gpos == first_gpos);
-        vf_center <= (next_gpos == 3'h0);
-        vf_first <= (ypos_i == grp_start);
-        vf_w <= (next_gpos != 3'h0) ? vflt_a : ((ypos_i == grp_start) ? vf_wf : vf_wc);
-        ds_halve <= (n_blend == 3'h4) & (next_gpos == first_gpos + 3'h2);
         ds_inblend <= blend_en & (next_gpos >= first_gpos) & (next_gpos <= st_gpos);
+        // 720p: (w_start: still the previous line's)
+        {w_end, w_start, w_a, w_b} <= w_next;
+        w_av <= w_start & (ypos_i != grp_start);
     end
     ypos_prev <= ypos_i;
     // (changes during horizontal blanking only, long before the first write)
@@ -543,7 +551,7 @@ reg ublend1;
 // the split line buffer (linebuf.v) gives up one M9K for it)
 (* ramstyle = "M9K", max_depth = 256 *) reg [35:0] acc_mem [0:1023];  // 4 x (256 x 36)
 reg [35:0] acc_q, acc_q2;
-reg [11:0] vc0_1b, vc1_1b, vc2_1b;     // flicker filter: this line's weighted R, G, B
+reg [13:0] pa0, pa1, pa2, pa3, pb0, pb1, pb2, pb3;    // 720p: a*L, b*L
 reg [31:0] u1b;
 reg [10:0] ua1b;
 reg uv1b;
@@ -586,9 +594,14 @@ always @(posedge PCLK_CAP_i) begin
     ua1 <= ua0;
     uv1 <= uv0;
     acc_q2 <= acc_q;
-    vc0_1b <= u1[31:24] * vf_w;
-    vc1_1b <= u1[23:16] * vf_w;
-    vc2_1b <= u1[15:8]  * vf_w;
+    pa0 <= u1[31:24] * w_a;
+    pa1 <= u1[23:16] * w_a;
+    pa2 <= u1[15:8]  * w_a;
+    pa3 <= u1[7:0]   * w_a;
+    pb0 <= u1[31:24] * w_b;
+    pb1 <= u1[23:16] * w_b;
+    pb2 <= u1[15:8]  * w_b;
+    pb3 <= u1[7:0]   * w_b;
     u1b <= u1;
     ua1b <= ua1;
     uv1b <= uv1;
@@ -602,86 +615,70 @@ wire [9:0] s1 = {1'b0, acc_q2[26:18]} + {2'b0, u1b[23:16]};
 wire [9:0] s2 = {1'b0, acc_q2[17:9]}  + {2'b0, u1b[15:8]};
 wire [9:0] s3 = {1'b0, acc_q2[8:0]}   + {2'b0, u1b[7:0]};
 
-// 4-line blend at the written line: 2 x (sum of 3 lines / 2) + this line
-wire [10:0] t0 = {1'b0, acc_q2[35:27], 1'b0} + {3'b0, u1b[31:24]};
-wire [10:0] t1 = {1'b0, acc_q2[26:18], 1'b0} + {3'b0, u1b[23:16]};
-wire [10:0] t2 = {1'b0, acc_q2[17:9], 1'b0}  + {3'b0, u1b[15:8]};
-wire [10:0] t3 = {1'b0, acc_q2[8:0], 1'b0}   + {3'b0, u1b[7:0]};
-
-// flicker filter: sums (center line: start or continue; other line: end the
-// row, and start the next one with the same weighted line)
-wire [12:0] vs0 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[35:24]}) + {1'b0, vc0_1b};
-wire [12:0] vs1 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[23:12]}) + {1'b0, vc1_1b};
-wire [12:0] vs2 = ((vf_center & vf_first) ? 13'h0 : {1'b0, acc_q2[11:0]})  + {1'b0, vc2_1b};
+// 720p: the ended row, (acc*32 + a*L + 32) / 64 (<= 24496)
+wire [14:0] ws0 = {acc_q2[35:27], 5'h0} + {1'b0, pa0} + 15'd32;
+wire [14:0] ws1 = {acc_q2[26:18], 5'h0} + {1'b0, pa1} + 15'd32;
+wire [14:0] ws2 = {acc_q2[17:9],  5'h0} + {1'b0, pa2} + 15'd32;
+wire [14:0] ws3 = {acc_q2[8:0],   5'h0} + {1'b0, pa3} + 15'd32;
 
 // U2 registers
 reg acc_we;
 reg [9:0] acc_wa;
 reg [35:0] acc_wd;
-reg [23:0] vout_2;
 reg [9:0] s0_2, s1_2, s2_2, s3_2;
-reg [7:0] q0_2, q1_2, q2_2, q3_2;
+reg [8:0] w0_2, w1_2, w2_2, w3_2;
 reg [31:0] u2;
 reg [10:0] ua2;
 reg uv2, blended_2;
 
 always @(posedge PCLK_CAP_i) begin
-    // accumulate the lines of the blend window that are not written
-    // blend RAM write (registered: each unit is written once per line)
-    acc_we <= vflt ? (uv1b & (ua1b < 11'd1024)) : (uv1b & ds_inblend & ~ds_store & (ua1b < 11'd1024));
+    // accumulate the lines of the blend window that are not written (720p:
+    // the started row); each unit is written once per line
+    acc_we <= uv1b & (ua1b < 11'd1024) & (w43 ? w_start : (ds_inblend & ~ds_store));
     acc_wa <= ua1b[9:0];
-    acc_wd <= vflt ? (vf_center ? {vs0[11:0], vs1[11:0], vs2[11:0]} : {vc0_1b, vc1_1b, vc2_1b}) :
+    acc_wd <= w43 ? {pb0[13:5], pb1[13:5], pb2[13:5], pb3[13:5]} :
               (ds_first ? {1'b0, u1b[31:24], 1'b0, u1b[23:16], 1'b0, u1b[15:8], 1'b0, u1b[7:0]} :
-               (ds_halve ? {s0[9:1], s1[9:1], s2[9:1], s3[9:1]} : {s0[8:0], s1[8:0], s2[8:0], s3[8:0]}));
+               {s0[8:0], s1[8:0], s2[8:0], s3[8:0]});
     if (acc_we)
         acc_mem[acc_wa] <= acc_wd;
 
     {s0_2, s1_2, s2_2, s3_2} <= {s0, s1, s2, s3};
-    vout_2 <= {vs0[11:4], vs1[11:4], vs2[11:4]};
-    // (rounded: 2 x floor(sum3/2) + line is 1 low when sum3 is odd)
-    {q0_2, q1_2, q2_2, q3_2} <= {t0[9:2] + t0[1], t1[9:2] + t1[1], t2[9:2] + t2[1], t3[9:2] + t3[1]};
+    {w0_2, w1_2, w2_2, w3_2} <= {ws0[14:6], ws1[14:6], ws2[14:6], ws3[14:6]};
     u2 <= u1b;
     ua2 <= ua1b;
     uv2 <= uv1b & ds_store;
-    blended_2 <= ds_inblend & ~ds_first;
+    blended_2 <= w43 ? w_av : (ds_inblend & ~ds_first);
 end
 
-// U2: average of the blend window (2 lines: >>1, 3 lines: *171>>9 ~ /3,
-// 4 lines: see t0..t3)
-wire [17:0] d0 = s0_2 * 8'd171;
-wire [17:0] d1 = s1_2 * 8'd171;
-wire [17:0] d2 = s2_2 * 8'd171;
-wire [17:0] d3 = s3_2 * 8'd171;
-// U3: registered averages, then the blend result selection and the line
-// buffer write
-reg [7:0] h0_3, h1_3, h2_3, h3_3, q0_3, q1_3, q2_3, q3_3, d0_3, d1_3, d2_3, d3_3;
+// U3: registered blend results (2 lines: average; 720p: clamped weighted
+// row), then the selection and the line buffer write. (HD converter: blends
+// of 3 / 4 lines are not used.)
+reg [7:0] h0_3, h1_3, h2_3, h3_3;
 reg [31:0] u3;
-reg [23:0] vout_3;
 reg [10:0] ua3;
 reg uv3, blended_3;
 
+function [7:0] sat8;
+    input [8:0] v;
+    sat8 = v[8] ? 8'hff : v[7:0];
+endfunction
+
 always @(posedge PCLK_CAP_i) begin
-    {h0_3, h1_3, h2_3, h3_3} <= {s0_2[8:1], s1_2[8:1], s2_2[8:1], s3_2[8:1]};
-    {q0_3, q1_3, q2_3, q3_3} <= {q0_2, q1_2, q2_2, q3_2};
-    {d0_3, d1_3, d2_3, d3_3} <= {d0[16:9], d1[16:9], d2[16:9], d3[16:9]};
+    if (w43)
+        {h0_3, h1_3, h2_3, h3_3} <= {sat8(w0_2), sat8(w1_2), sat8(w2_2), sat8(w3_2)};
+    else
+        {h0_3, h1_3, h2_3, h3_3} <= {s0_2[8:1], s1_2[8:1], s2_2[8:1], s3_2[8:1]};
     u3 <= u2;
-    vout_3 <= vout_2;
     ua3 <= ua2;
     uv3 <= uv2;
     blended_3 <= blended_2;
 end
 
-wire [7:0] b0 = (n_blend == 3'h2) ? h0_3 : ((n_blend == 3'h4) ? q0_3 : d0_3);
-wire [7:0] b1 = (n_blend == 3'h2) ? h1_3 : ((n_blend == 3'h4) ? q1_3 : d1_3);
-wire [7:0] b2 = (n_blend == 3'h2) ? h2_3 : ((n_blend == 3'h4) ? q2_3 : d2_3);
-wire [7:0] b3 = (n_blend == 3'h2) ? h3_3 : ((n_blend == 3'h4) ? q3_3 : d3_3);
-wire [31:0] u3_out = vflt ? {vout_3, 8'h0} : (blended_3 ? {b0, b1, b2, b3} : u3);
+wire [31:0] u3_out = blended_3 ? {h0_3, h1_3, h2_3, h3_3} : u3;
 
 always @(posedge PCLK_CAP_i) begin
     // U3 -> line buffer write
     case (lb_layout)
-        2'h1: linebuf_wraddr_r <= {ypos_wraddr[2:0], ua3[9:0]};
-        2'h2: linebuf_wraddr_r <= {ypos_wraddr[3:0], ua3[8:0]};
         2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua3};
         default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua3};
     endcase

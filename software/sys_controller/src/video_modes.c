@@ -191,6 +191,9 @@ typedef struct {
     // HD converter: picture width in per mille of the 16:9 width (0 = 1000;
     // 1280x1024: 5:4 in 16:9, pillarboxed)
     uint16_t width_pm;
+    // HD converter, 720p: groups of 4 lines -> 3 rows, each the weighted sum
+    // of 2 lines (or 1), see linebuf_top
+    uint8_t w43;
 } ds_mode_t;
 
 #ifndef P4_ADC
@@ -207,6 +210,13 @@ static const ds_mode_t ds_modes[] = {
     // line buffer rows; the blend accumulator holds 1024 pixel pairs).
     { HDMI_1080p60,    1125, 2200, 2200, 562, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
     { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
+    // 720p60 -> 540p / 1080i: groups of 4 lines, 3 rows each, weighted (540p:
+    // area weights; 1080i: linear interpolation, the two fields 2/3 of an
+    // input line apart). 720 input lines and 540 output rows take the same
+    // time (16.0ms): almost no read/write drift. All 1280 pixels (74.25MHz),
+    // 1 clock per pixel (~49.5MHz), YCbCr 4:2:2 (640 words).
+    { HDMI_720p60,      750, 1650, 2200, 562, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
+    { HDMI_720p60,      750, 1650, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
     // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
     // value 7), 480 rows centered in the 540 (30 black lines above and
     // below), 4:3 pillarboxed (2/3 of the 16:9 width) or "Wide" (anamorphic
@@ -531,6 +541,16 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
         *ext = 1;
         return;
     }
+#ifdef DS_HD
+    if (m->w43) {
+        // 720p (see linebuf_top): the first row of a group is written at line
+        // 1 (540p, 1080i field B) or 0 (field A)
+        *st_a = m->ilace ? 0 : 1;
+        *st_b = 1;
+        *n_a = *n_b = 1;
+        return;
+    }
+#endif
     if (DS_HD_FLT(m, cc)) {
         // last line used by the last field B row, and the lines available
         // after the active ones (up to 2 front porch lines, blank: the last
@@ -686,6 +706,20 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 // overwritten (worst at the first line, last pixel). In 480i the even field
 // is read half a line later relative to its input frame.
 #define DS_T0_MARGIN_OC 24      // pipeline delays, output clocks
+
+// Input line (from the first group start) at which row r of field f is
+// written: (vdec+1)*r + st, or for the 720p rows (w43) the end line of the
+// row in its group of 4 (540p: 1, 2, 3; 1080i field A: 0, 1, 3; B: 1, 2, 3)
+static int64_t ds_row_line(const ds_mode_t *m, int f, int64_t st, int64_t r) {
+#ifdef DS_HD
+    if (m->w43) {
+        static const uint8_t e[3][3] = {{1, 2, 3}, {0, 1, 3}, {1, 2, 3}};
+        int t = m->ilace ? (f ? 2 : 1) : 0;
+        return 4*(r/3) + e[t][r%3];
+    }
+#endif
+    return (m->vdec+1)*r + st;
+}
 static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in, int32_t out_offset, uint16_t w, uint16_t rpt,
                          int64_t *lo_o, int64_t *hi_o, int64_t *u_oline_o, int64_t *u_oc_o) {
     int64_t hin = vm_in->timings.h_total;
@@ -717,13 +751,17 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // the worst pixel is the first one for "written before read" and the last
     // one for "read before overwritten". 480i field B is read half a line
     // later relative to its input frame.
+    // (720p rows: linear in r for each row of the group, so the first and
+    // last three rows)
+    (void)g;
     for (f=0; f<(m->ilace ? 2 : 1); f++) {
         int64_t st = f ? st_b : st_a;
         int64_t ofs = f ? u_oline/2 : 0;
-        for (i=0; i<2; i++) {
-            int64_t r = i ? (k-1) : 0;
-            int64_t l = (y0 + g*r + st + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
-            int64_t h = (y0 + g*(r+d) + st + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
+        int nr = m->w43 ? 6 : 2;
+        for (i=0; i<nr; i++) {
+            int64_t r = m->w43 ? ((i < 3) ? i : (k-6+i)) : (i ? (k-1) : 0);
+            int64_t l = (y0 + ds_row_line(m, f, st, r) + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
+            int64_t h = (y0 + ds_row_line(m, f, st, r+d) + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
             if (l > lo) lo = l;
             if (h < hi) hi = h;
         }
@@ -1007,6 +1045,10 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
             int g = m->vdec+1, k = DS_OUT_V_ROWS(m), p = cc->ds_vphase % g;
             int fp = vm_in->timings.v_total - vm_in->timings.v_synclen - vm_in->timings.v_backporch - vm_in->timings.v_active;
             int last = m->v_start + p + g*(k-1) + ((st_a > st_b+bofs) ? st_a : (m->ilace ? st_b+bofs : st_a));
+            if (m->w43) {
+                int la = (int)ds_row_line(m, 0, st_a, k-1), lb = (int)ds_row_line(m, 1, st_b, k-1);
+                last = m->v_start + p + ((m->ilace && (lb > la)) ? lb : la);
+            }
             int need = last - (vm_in->timings.v_active - 1);
             if (fp > 4)
                 fp = 4;
@@ -1018,6 +1060,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         vm_in->timings.v_active += ext;
     }
     vm_conf->ds_hfilt = m->hfilt;
+    vm_conf->ds_w43 = m->w43;
     // groups of 1 line: register value 7 (0 = stock line buffer mode)
     vm_conf->ds_vdec = m->vdec ? m->vdec : 7;
     vm_conf->ds_lb_layout = m->lb_layout;

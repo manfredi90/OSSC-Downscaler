@@ -58,9 +58,8 @@ module scanconverter (
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
-    input ds_vflt,              // 480p -> 480i flicker filter (see linebuf_top)
+    input ds_w43,               // 720p: 3 weighted rows per 4 lines (see linebuf_top)
     input [1:0] ds_vflt_bofs,
-    input [4:0] ds_vflt_a,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
     input lb_rgb,               // line buffer layout 3: RGB, one pixel per word
@@ -400,9 +399,8 @@ linebuf_top #(
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
-    .vflt(ds_vflt),
+    .w43(ds_w43),
     .vflt_bofs(ds_vflt_bofs),
-    .vflt_a(ds_vflt_a),
     .in_field(in_field),
     .lb_stride(lb_stride),
     .lb_slots(lb_slots),
@@ -438,7 +436,7 @@ videogen vg0 (
     .pclk           (PCLK_OUT_i),
     .xpos           (xpos_vg[11:0]),                  // 1440x480 window ->
     .ypos           (ypos_vg),                        // 720x480 generator coords
-    .tp_sel         (misc_config[10:9]),              // test pattern (stock reverse LPF bits)
+    .tp_sel         (2'b00),                          // HD converter: gray pattern only
     .R_out          (R_vg),
     .G_out          (G_vg),
     .B_out          (B_vg)

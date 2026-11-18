@@ -192,6 +192,7 @@ typedef struct {
     uint8_t ds_vflt;        // 480p -> 480i flicker filter on
     uint8_t ds_vflt_bofs;   //   field B groups start 0-3 lines later (flicker filters)
     uint8_t ds_vflt_a;      //   outer weight (1/16)
+    uint8_t ds_w43;         // HD converter, 720p: 3 weighted rows per 4 lines (same register bit as ds_vflt)
     uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 

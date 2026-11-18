@@ -104,11 +104,10 @@ wire ds_fswap = sl_config[2];               // 480i: swapped field order
 // 480i/576i input shown as 240p/288p: both fields with the vsync at a line
 // start (same scanlines)
 wire ds_i2p = sl_config[4];
-// 480p -> 480i flicker filter (RGB rows, groups of 2 lines): 3 lines per
-// field row with weights a, 16-2a, a (1/16); field B groups start one line later
-wire ds_vflt = sl_config[5];
+// HD converter: 720p, 3 weighted rows per 4 input lines (see linebuf_top)
+// (the bit of the 15kHz firmware's 480p -> 480i flicker filter, not here)
+wire ds_w43 = sl_config[5];
 wire [1:0] ds_vflt_bofs = {sl_config[23], sl_config[6]};   // field B group offset (lines)
-wire [4:0] ds_vflt_a = sl_config[20:16];
 wire [9:0] ds_lb_stride = sl_config3[9:0];  // line buffer layout 3: words per line
 wire [5:0] ds_lb_slots = sl_config3[15:10]; //   number of lines
 wire ds_lb_rgb = sl_config3[29];            //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
@@ -578,9 +577,8 @@ scanconverter #(
     .ds_ilace(ds_ilace),
     .ds_fswap(ds_fswap),
     .ds_i2p(ds_i2p),
-    .ds_vflt(ds_vflt),
+    .ds_w43(ds_w43),
     .ds_vflt_bofs(ds_vflt_bofs),
-    .ds_vflt_a(ds_vflt_a),
     .lb_stride(ds_lb_stride),
     .lb_slots(ds_lb_slots),
     .lb_rgb(ds_lb_rgb),
