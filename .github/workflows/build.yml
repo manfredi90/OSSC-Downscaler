@@ -35,9 +35,15 @@ jobs:
         timeout-minutes: 20
         run: |
           # the apt mirrors sometimes hang: bounded attempts, retried
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
           for i in 1 2 3; do
-            if timeout 180 sudo apt-get update -qq &&
-               timeout 300 sudo apt-get install -y -qq gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf picolibc-riscv64-unknown-elf; then
+            if [ "$i" -gt 1 ]; then
+              # retry on the main Ubuntu mirror instead of the runner's default one
+              sudo sed -i 's#http://azure.archive.ubuntu.com#http://archive.ubuntu.com#g' \
+                /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+            fi
+            if timeout 180 sudo apt-get $APT update -qq &&
+               timeout 300 sudo apt-get $APT install -y -qq gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf picolibc-riscv64-unknown-elf; then
               exit 0
             fi
             echo "apt attempt $i failed, retrying"
