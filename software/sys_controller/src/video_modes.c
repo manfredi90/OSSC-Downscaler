@@ -209,10 +209,19 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
     // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
     // value 7), 480 rows centered in the 540 (30 black lines above and
-    // below), 4:3 pillarboxed (2/3 of the 16:9 width). An input line lasts
-    // 1.07 output lines: ~33 rows of drift, short rows: the ADC at P4_ADC /
-    // VG_ADC samples per line, 2 averaged, 464 / 466 pixels, 2 clocks per pixel.
-    // 1080i: both fields show every line (480 rows each).
+    // below), 4:3 pillarboxed (2/3 of the 16:9 width) or "Wide" (anamorphic
+    // 16:9, full width). An input line lasts 1.07 output lines: ~33 rows of
+    // drift, so the rows must be short (720 pixels would need ~12000 words):
+    //  "480p sampling" Sharp: the ADC at P4_ADC / VG_ADC samples per line, 2
+    //   averaged, 464 / 466 pixels (not an integer ratio: fine detail
+    //   shimmers when it moves);
+    //  "480p sampling" Stable: the ADC at the source pixel clock (858 / 800),
+    //   pixel pairs averaged, exactly 360 / 320 pixels (2:1, no shimmer).
+    // 2 clocks per pixel. 1080i: both fields show every line (480 rows each).
+    { HDMI_480p60,      525,      429, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
+    { HDMI_480p60,      525,      429, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
+    { HDMI_640x480p60,  525,      400, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
+    { HDMI_640x480p60,  525,      400, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
     { HDMI_480p60,      525, P4_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
     { HDMI_480p60,      525, P4_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
     { HDMI_640x480p60,  525, VG_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667 },
@@ -397,6 +406,16 @@ static int ds_hd_vic(HDMI_Video_Type vic) {
     return (vic == HDMI_720p60) || (vic == HDMI_1080p60);
 }
 
+// HD converter, 480p / VGA rows: "480p sampling" (ds_i2p) 0 = Stable (ADC at
+// the source pixel clock, adc_h_total 0), 1 = Sharp (ADC at P4_ADC / VG_ADC)
+static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc) {
+#ifdef DS_HD
+    if (m->width_pm)
+        return (m->adc_h_total != 0) == (cc->ds_i2p != 0);
+#endif
+    return 1;
+}
+
 static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_data_t *vm_in) {
     unsigned i;
     const ds_mode_t *match = NULL;
@@ -418,7 +437,11 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
     else
         return NULL;
     // "HD format" (720p and 1080p; Wide: 180p for 720p, 216p for 1080p)
+#ifdef DS_HD
+    ar = 0;     // HD converter: ds_720p_ar is the 480p format (4:3 / Wide)
+#else
     ar = cc->ds_720p_ar;
+#endif
 
     if (cc->ds_480i)
         want[npass++] = 1;
@@ -431,14 +454,14 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         // selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) &&
+                if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) && ds_sampling_ok(&ds_modes[i], cc) &&
                     (ds_modes[i].ilace == want[pass]) &&
                     (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar)))
                     return &ds_modes[i];
             }
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-            if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) &&
+            if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && ds_sampling_ok(&ds_modes[i], cc) &&
                 ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
                 (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar))) {
@@ -796,7 +819,10 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 #ifdef DS_HD
         // "Width": 100% = 1920 / 2200 clocks of the line (1080i standard)
         // (times the row's picture width, pillarboxed sources)
-        uint32_t target_pm = ((873 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO)) * (m->width_pm ? m->width_pm : 1000) + 500)/1000;
+        // (times the row's picture width: 4:3 pillarboxed, unless "480p
+        // format" is Wide)
+        uint32_t wpm = (m->width_pm && !cc->ds_720p_ar) ? m->width_pm : 1000;
+        uint32_t target_pm = ((873 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO)) * wpm + 500)/1000;
 #else
         // "Width": 100% = 80% of the line
         uint32_t target_pm = 800 + 8*((int)cc->ds_width - SIGNED_NUMVAL_ZERO);
@@ -1485,9 +1511,11 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     // line timing (fields of 263 and 262 lines, frame locked like the
     // passthrough) but both vsyncs start at a line start, so that both fields
     // land on the same scanlines.
+#ifndef DS_HD   // (HD converter: ds_i2p is the 480p sampling)
     if ((mindiff_lm == MODE_PT) && vm_in->timings.interlaced && cc->ds_i2p &&
         ((mode_preset->group == GROUP_480I) || (mode_preset->group == GROUP_576I)))
         vm_conf->ds_i2p = 1;
+#endif
 
     if (mindiff_lm == MODE_PT)
         ds_pt_position(cc, vm_out, vm_conf);

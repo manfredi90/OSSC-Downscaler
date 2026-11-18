@@ -100,9 +100,12 @@ int ds_settings_load() {
     // test pattern design: not kept, Gray at start
     tc.ds_tp_sel = 0;
 #ifdef DS_HD
-    // HD converter: 16:9 only, no 15kHz input processing, flicker Off / On
-    tc.ds_720p_ar = 0;
-    tc.ds_i2p = 0;
+    // HD converter: ds_720p_ar = 480p format (4:3 / Wide), ds_i2p = 480p
+    // sampling (Stable / Sharp), flicker Off / On
+    if (tc.ds_720p_ar > 1)
+        tc.ds_720p_ar = 0;
+    if (tc.ds_i2p > 1)
+        tc.ds_i2p = 0;
     if (tc.ds_flicker > 1)
         tc.ds_flicker = 1;
 #endif

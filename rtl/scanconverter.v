@@ -525,7 +525,7 @@ end
 // |          |          |         |         |         |         |         |         |         |         |         |    TP   |
 
 
-// Standard composite sync (as in NTSC): 3 lines of equalizing pulses (half
+// Composite sync (in the 15kHz firmware, as in NTSC): 3 lines of equalizing pulses (half
 // width, every half line), 3 lines of serrated vsync (broad pulses every half
 // line) and 3 lines of equalizing pulses. Positions are counted in half lines
 // from the vsync start of the current field (cs_pcur) or of the next one
@@ -561,7 +561,11 @@ always @(posedge PCLK_OUT_i) begin
     cs_lt_hs_b <= ~cs_half_a & (cs_hpos_a < H_SYNCLEN);
     // stage C
     cs_vs_c <= (cs_p >= 0) & (cs_p < cs_vs_end);
-    cs_eq_c <= ((cs_p >= -14'sd6) & (cs_p < 0)) | ((cs_p >= cs_vs_end) & (cs_p < cs_vs_end + 14'sd6));
+    // HD converter: no equalizing pulses ("Serrated", as SMPTE 274M: broad
+    // pulses every half line during vsync only). At 33.75kHz they upset
+    // the monitor's sync separator, and the 3 pre-equalizing lines would
+    // reach into the active video (front porch 2 lines).
+    cs_eq_c <= 1'b0;
     {cs_lt_vs_c, cs_lt_eq_c, cs_lt_hs_c} <= {cs_lt_vs_b, cs_lt_eq_b, cs_lt_hs_b};
     // stage D (= pipeline stage 4), active low
     cs_d <= ~(cs_vs_c ? cs_lt_vs_c : (cs_eq_c ? cs_lt_eq_c : cs_lt_hs_c));

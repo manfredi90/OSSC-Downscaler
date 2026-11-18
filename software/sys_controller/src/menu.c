@@ -98,7 +98,14 @@ static const char* const lumacode_pal_desc[] = { "PAL", "NTSC", c_lc_palette_set
 static const char* const adc_pll_bw_desc[] = { "High", "Medium", "Low", "Ultra low" };
 static const char* const fpga_pll_bw_desc[] = { "High", "Low" };
 static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
+#ifdef DS_HD
+// HD converter: "Serrated" = broad pulses every half line, no equalizing pulses
+static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Serrated" };
+static const char* const ds_480p_fmt_desc[] = { "4:3", "Wide 16:9" };
+static const char* const ds_480p_smp_desc[] = { "Stable (360)", "Sharp (464)" };
+#else
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
+#endif
 static const char* const ds_range_desc[] = { "Full (0-255)", "Lim. (16-235)", "Lim. (16-255)" };
 static const char* const ds_tp_desc[] = { "Gray", "Grid", "Monoscope", "RGB" };
 static const char* const ds_720p_ar_desc[] = { "Full 16:9", "Center 4:3", "Wide" };
@@ -283,8 +290,11 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "HDMI range",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_out_range, OPT_WRAP,   SETTING_ITEM(ds_range_desc) } } },
 #ifdef DS_HD
-    // HD converter: no 15kHz-specific options, 1080i flicker filter Off / On
+    // HD converter: no 15kHz-specific options, 1080i flicker filter Off / On;
+    // ds_720p_ar = 480p format, ds_i2p = 480p sampling
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
+    { "480p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_480p_fmt_desc) } } },
+    { "480p sampling",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p,       OPT_WRAP,   SETTING_ITEM(ds_480p_smp_desc) } } },
     { "Flicker filter",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_flicker,   OPT_WRAP,   SETTING_ITEM(off_on_desc) } } },
 #else
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
