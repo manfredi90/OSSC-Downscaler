@@ -193,16 +193,30 @@ typedef struct {
     uint16_t width_pm;
 } ds_mode_t;
 
+#ifndef P4_ADC
+#define P4_ADC 1110
+#define VG_ADC 1166
+#endif
 static const ds_mode_t ds_modes[] = {
 #ifdef DS_HD
     // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
     // lines, one field per input frame, 33.75kHz). 2 lines per output line:
     // 540p = the 2 lines averaged (or line 0 without line blending); 1080i:
-    // field A = line 0, field B = line 1 of each pair. 1920 pixels sampled at
-    // 148.5MHz, 2 averaged: 960 pixels, 2 clocks per pixel (74.25MHz), YCbCr
-    // 4:2:2 (the line blend accumulator holds 768 pixel pairs).
-    { HDMI_1080p60,    1125, 1100, 2200, 562, 1, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
-    { HDMI_1080p60,    1125, 1100, 2200,1125, 1, 1, 3,  0, 0,   0, 0, 1, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
+    // field A = line 0, field B = line 1 of each pair. All 1920 pixels
+    // (148.5MHz), 1 clock per pixel (74.25MHz), YCbCr 4:2:2 (960 words, 8
+    // line buffer rows; the blend accumulator holds 1024 pixel pairs).
+    { HDMI_1080p60,    1125, 2200, 2200, 562, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
+    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
+    // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
+    // value 7), 480 rows centered in the 540 (30 black lines above and
+    // below), 4:3 pillarboxed (2/3 of the 16:9 width). An input line lasts
+    // 1.07 output lines: ~33 rows of drift, short rows: the ADC at P4_ADC /
+    // VG_ADC samples per line, 2 averaged, 464 / 466 pixels, 2 clocks per pixel.
+    // 1080i: both fields show every line (480 rows each).
+    { HDMI_480p60,      525, P4_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
+    { HDMI_480p60,      525, P4_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
+    { HDMI_640x480p60,  525, VG_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667 },
+    { HDMI_640x480p60,  525, VG_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
@@ -352,7 +366,12 @@ static const ds_mode_t ds_modes[] = {
 #define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
 #define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : (((w)+1)/2))
-#define DS_LB_SLOTS(st)     (((8192/(st)) > 63) ? 63 : (8192/(st)))
+#ifdef DS_HD
+#define DS_LB_WORDS         7936    // one M9K less (blend accumulator)
+#else
+#define DS_LB_WORDS         8192
+#endif
+#define DS_LB_SLOTS(st)     (((DS_LB_WORDS/(st)) > 63) ? 63 : (DS_LB_WORDS/(st)))
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
 // ADC samples per stored sample
@@ -973,7 +992,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         vm_in->timings.v_active += ext;
     }
     vm_conf->ds_hfilt = m->hfilt;
-    vm_conf->ds_vdec = m->vdec;
+    // groups of 1 line: register value 7 (0 = stock line buffer mode)
+    vm_conf->ds_vdec = m->vdec ? m->vdec : 7;
     vm_conf->ds_lb_layout = m->lb_layout;
     vm_conf->ds_csync = cc->ds_csync;
 
