@@ -68,9 +68,55 @@ module linebuf (
 // synopsys translate_on
 `endif
 
-	wire [31:0] sub_wire0;
-	wire [31:0] q = sub_wire0[31:0];
+	// HD converter: the 32-bit line buffer split into 5 memories of
+	// different depth, 4096 + 2048 + 1024 + 512 + 256 = 7936 words in
+	// 16 + 8 + 4 + 2 + 1 = 31 M9K (an 8192-word buffer takes 32 M9K in
+	// any single shape): the freed M9K goes to the line blend accumulator.
+	// Addresses 7936-8191 are not stored. Same latency as one altsyncram
+	// (registered address and output, rdclocken on both).
+	wire [4:0] wsel = ~wraddress[12] ? 5'b00001 : (~wraddress[11] ? 5'b00010 : (~wraddress[10] ? 5'b00100 :
+	                  (~wraddress[9] ? 5'b01000 : (~wraddress[8] ? 5'b10000 : 5'b00000))));
+	wire [2:0] rsel = ~rdaddress[12] ? 3'd0 : (~rdaddress[11] ? 3'd1 : (~rdaddress[10] ? 3'd2 :
+	                  (~rdaddress[9] ? 3'd3 : (~rdaddress[8] ? 3'd4 : 3'd5))));
+	reg [2:0] rsel_1, rsel_2;
+	always @(posedge rdclock) begin
+		if (rdclocken) begin
+			rsel_1 <= rsel;
+			rsel_2 <= rsel_1;
+		end
+	end
+	wire [31:0] q0, q1, q2, q3, q4;
+	assign q = (rsel_2 == 3'd0) ? q0 : (rsel_2 == 3'd1) ? q1 : (rsel_2 == 3'd2) ? q2 :
+	           (rsel_2 == 3'd3) ? q3 : (rsel_2 == 3'd4) ? q4 : 32'h0;
 
+	linebuf_part #(.DEPTH(4096), .AW(12)) part0 (.data(data), .wraddress(wraddress[11:0]), .wren(wren & wsel[0]), .wrclock(wrclock), .wrclocken(wrclocken),
+	                                             .rdaddress(rdaddress[11:0]), .rdclock(rdclock), .rdclocken(rdclocken), .q(q0));
+	linebuf_part #(.DEPTH(2048), .AW(11)) part1 (.data(data), .wraddress(wraddress[10:0]), .wren(wren & wsel[1]), .wrclock(wrclock), .wrclocken(wrclocken),
+	                                             .rdaddress(rdaddress[10:0]), .rdclock(rdclock), .rdclocken(rdclocken), .q(q1));
+	linebuf_part #(.DEPTH(1024), .AW(10)) part2 (.data(data), .wraddress(wraddress[9:0]), .wren(wren & wsel[2]), .wrclock(wrclock), .wrclocken(wrclocken),
+	                                             .rdaddress(rdaddress[9:0]), .rdclock(rdclock), .rdclocken(rdclocken), .q(q2));
+	linebuf_part #(.DEPTH(512), .AW(9))   part3 (.data(data), .wraddress(wraddress[8:0]), .wren(wren & wsel[3]), .wrclock(wrclock), .wrclocken(wrclocken),
+	                                             .rdaddress(rdaddress[8:0]), .rdclock(rdclock), .rdclocken(rdclocken), .q(q3));
+	linebuf_part #(.DEPTH(256), .AW(8))   part4 (.data(data), .wraddress(wraddress[7:0]), .wren(wren & wsel[4]), .wrclock(wrclock), .wrclocken(wrclocken),
+	                                             .rdaddress(rdaddress[7:0]), .rdclock(rdclock), .rdclocken(rdclocken), .q(q4));
+endmodule
+
+// one part of the split line buffer (simple dual port, registered address
+// and output on the read side)
+module linebuf_part #(
+	parameter DEPTH = 4096,
+	parameter AW = 12
+) (
+	input [31:0] data,
+	input [AW-1:0] wraddress,
+	input wren,
+	input wrclock,
+	input wrclocken,
+	input [AW-1:0] rdaddress,
+	input rdclock,
+	input rdclocken,
+	output [31:0] q
+);
 	altsyncram	altsyncram_component (
 				.address_a (wraddress),
 				.address_b (rdaddress),
@@ -80,7 +126,7 @@ module linebuf (
 				.clocken1 (rdclocken),
 				.data_a (data),
 				.wren_a (wren),
-				.q_b (sub_wire0),
+				.q_b (q),
 				.aclr0 (1'b0),
 				.aclr1 (1'b0),
 				.addressstall_a (1'b0),
@@ -103,20 +149,19 @@ module linebuf (
 		altsyncram_component.clock_enable_output_b = "NORMAL",
 		altsyncram_component.intended_device_family = "Cyclone IV E",
 		altsyncram_component.lpm_type = "altsyncram",
-		altsyncram_component.numwords_a = 8192,
-		altsyncram_component.numwords_b = 8192,
+		altsyncram_component.numwords_a = DEPTH,
+		altsyncram_component.numwords_b = DEPTH,
 		altsyncram_component.operation_mode = "DUAL_PORT",
 		altsyncram_component.outdata_aclr_b = "NONE",
 		altsyncram_component.outdata_reg_b = "CLOCK1",
 		altsyncram_component.power_up_uninitialized = "FALSE",
-		altsyncram_component.widthad_a = 13,
-		altsyncram_component.widthad_b = 13,
+		altsyncram_component.widthad_a = AW,
+		altsyncram_component.widthad_b = AW,
 		altsyncram_component.width_a = 32,
 		altsyncram_component.width_b = 32,
 		altsyncram_component.width_byteena_a = 1;
-
-
 endmodule
+
 
 // ============================================================
 // CNX file retrieval info

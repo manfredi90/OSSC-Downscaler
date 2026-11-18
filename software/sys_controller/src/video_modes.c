@@ -202,12 +202,11 @@ static const ds_mode_t ds_modes[] = {
     // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
     // lines, one field per input frame, 33.75kHz). 2 lines per output line:
     // 540p = the 2 lines averaged (or line 0 without line blending); 1080i:
-    // field A = line 0, field B = line 1 of each pair. 1536 pixels (the
-    // line blend accumulator holds 768 pixel pairs, and the FPGA has no M9K
-    // left for more): the ADC at 1760 samples per line (118.8MHz), 1 clock
-    // per pixel, ~1760 clocks per line (59.4MHz), YCbCr 4:2:2.
-    { HDMI_1080p60,    1125, 1760, 2200, 562, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1, 0, 0, 0, 0, 1760 },
-    { HDMI_1080p60,    1125, 1760, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 1760 },
+    // field A = line 0, field B = line 1 of each pair. All 1920 pixels
+    // (148.5MHz), 1 clock per pixel (74.25MHz), YCbCr 4:2:2 (960 words, 8
+    // line buffer rows; the blend accumulator holds 1024 pixel pairs).
+    { HDMI_1080p60,    1125, 2200, 2200, 562, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
+    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
     // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
     // value 7), 480 rows centered in the 540 (30 black lines above and
     // below), 4:3 pillarboxed (2/3 of the 16:9 width). An input line lasts
@@ -367,7 +366,11 @@ static const ds_mode_t ds_modes[] = {
 #define DS_VFLT(m, cc)      ((m)->ilace && ((m)->vdec == 1) && (m)->rgb444 && (cc)->ds_flicker && ((cc)->ds_flicker <= 4))
 // line buffer words per stored line / number of lines (layout 3)
 #define DS_LB_STRIDE(m, w)  ((m)->rgb444 ? (w) : (((w)+1)/2))
+#ifdef DS_HD
+#define DS_LB_WORDS         7936    // split line buffer, see linebuf.v
+#else
 #define DS_LB_WORDS         8192
+#endif
 #define DS_LB_SLOTS(st)     (((DS_LB_WORDS/(st)) > 63) ? 63 : (DS_LB_WORDS/(st)))
 static uint16_t ds_framesync_line, ds_v_active, ds_hofs;
 
