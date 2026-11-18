@@ -18,14 +18,15 @@ create_generated_clock -name flash_clk_out -master_clock flash_clk -source [get_
 # (<= 66MHz): pclk_tvp_high (90MHz) is the master of the clock mux output,
 # pclk_tvp_cap (150MHz) constrains the capture logic.
 create_clock -period 90MHz -name pclk_tvp_high [get_ports TVP_PCLK_i]
-create_clock -period 33MHz -name pclk_tvp_low [get_ports TVP_PCLK_i] -add
+create_clock -period 37.125MHz -name pclk_tvp_low [get_ports TVP_PCLK_i] -add
 create_clock -period 150MHz -name pclk_tvp_cap [get_ports TVP_PCLK_i] -add
 
 #derive_pll_clocks
 # Downscaler firmware: the FPGA PLL only produces the separate output clock of
 # the full resolution modes (<= 66MHz, enforced in software, see
 # DS_PLL_PCLK_MAX) or 27MHz for the test pattern; the stock 5x line
-# multiplier modes are never used. Constrain its output at 66MHz.
+# multiplier modes are never used. HD branch experiment: constrain its
+# output at 74.25MHz (1080i / 540p with 1920 pixels).
 create_generated_clock -name pclk_5x -master_clock pclk_tvp_low -source {pll_pclk|altpll_component|auto_generated|pll1|inclk[1]} -multiply_by 2 -duty_cycle 50.00 {pll_pclk|altpll_component|auto_generated|pll1|clk[0]}
 create_generated_clock -name pclk_27mhz -master_clock clk27 -source {pll_pclk|altpll_component|auto_generated|pll1|inclk[0]} -multiply_by 1 -duty_cycle 50.00 {pll_pclk|altpll_component|auto_generated|pll1|clk[0]} -add
 
