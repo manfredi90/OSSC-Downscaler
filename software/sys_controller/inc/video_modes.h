@@ -194,6 +194,7 @@ typedef struct {
     uint8_t ds_vflt_a;      //   outer weight (1/16)
     uint8_t ds_w43;         // HD converter, 720p: 3 weighted rows per 4 lines (same register bit as ds_vflt)
     uint8_t ds_bob;         // HD converter, 1080i input: every field one 540p frame
+    uint8_t ds_w43_near;    // HD converter, 720p, line blending off: nearest lines
     uint16_t ds_hofs;       // output H position at the input frame start (sub-line timing)
 } vm_proc_config_t;
 

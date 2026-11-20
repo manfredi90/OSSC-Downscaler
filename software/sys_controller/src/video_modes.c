@@ -571,9 +571,10 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
     }
     if (m->w43) {
         // 720p (see linebuf_top): the first row of a group is written at line
-        // 1 (540p, 1080i field B) or 0 (field A)
-        *st_a = m->ilace ? 0 : 1;
-        *st_b = 1;
+        // 1 (540p, 1080i field B) or 0 (field A); line blending off (nearest
+        // line): at line 0
+        *st_a = (m->ilace || cc->ds_vblend_off) ? 0 : 1;
+        *st_b = cc->ds_vblend_off ? 0 : 1;
         *n_a = *n_b = 1;
         return;
     }
@@ -737,14 +738,18 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 
 // Input line (from the first group start) at which row r of field f is
 // written: (vdec+1)*r + st, or for the 720p rows (w43) the end line of the
-// row in its group of 4 (540p: 1, 2, 3; 1080i field A: 0, 1, 3; B: 1, 2, 3)
-static int64_t ds_row_line(const ds_mode_t *m, int f, int64_t st, int64_t r) {
+// row in its group of 4 (540p: 1, 2, 3; 1080i field A: 0, 1, 3; B: 1, 2, 3;
+// line blending off, the nearest lines: 540p 0, 1, 3; A 0, 1, 2; B 0, 2, 3)
+static int64_t ds_row_line(const ds_mode_t *m, avconfig_t *cc, int f, int64_t st, int64_t r) {
 #ifdef DS_HD
     if (m->w43 && !m->bob) {
-        static const uint8_t e[3][3] = {{1, 2, 3}, {0, 1, 3}, {1, 2, 3}};
+        static const uint8_t e[2][3][3] = {{{1, 2, 3}, {0, 1, 3}, {1, 2, 3}},
+                                           {{0, 1, 3}, {0, 1, 2}, {0, 2, 3}}};
         int t = m->ilace ? (f ? 2 : 1) : 0;
-        return 4*(r/3) + e[t][r%3];
+        return 4*(r/3) + e[cc->ds_vblend_off ? 1 : 0][t][r%3];
     }
+#else
+    (void)cc;
 #endif
     return (m->vdec+1)*r + st;
 }
@@ -793,8 +798,8 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         int nr = w43r ? 6 : 2;
         for (i=0; i<nr; i++) {
             int64_t r = w43r ? ((i < 3) ? i : (k-6+i)) : (i ? (k-1) : 0);
-            int64_t l = (y0 + ds_row_line(m, f, st, r) + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
-            int64_t h = (y0 + ds_row_line(m, f, st, r+d) + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
+            int64_t l = (y0 + ds_row_line(m, cc, f, st, r) + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
+            int64_t h = (y0 + ds_row_line(m, cc, f, st, r+d) + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
             if (l > lo) lo = l;
             if (h < hi) hi = h;
         }
@@ -1080,7 +1085,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
             int fp = vm_in->timings.v_total - vm_in->timings.v_synclen - vm_in->timings.v_backporch - vm_in->timings.v_active;
             int last = m->v_start + p + g*(k-1) + ((st_a > st_b+bofs) ? st_a : (m->ilace ? st_b+bofs : st_a));
             if (m->w43) {
-                int la = (int)ds_row_line(m, 0, st_a, k-1), lb = (int)ds_row_line(m, 1, st_b, k-1);
+                int la = (int)ds_row_line(m, cc, 0, st_a, k-1), lb = (int)ds_row_line(m, cc, 1, st_b, k-1);
                 last = m->v_start + p + ((m->ilace && (lb > la)) ? lb : la);
             }
             int need = last - (vm_in->timings.v_active - 1);
@@ -1096,6 +1101,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_w43 = m->w43;
     vm_conf->ds_bob = m->bob;
+    vm_conf->ds_w43_near = m->w43 && !m->bob && cc->ds_vblend_off;
     // groups of 1 line: register value 7 (0 = stock line buffer mode)
     vm_conf->ds_vdec = m->vdec ? m->vdec : 7;
     vm_conf->ds_lb_layout = m->lb_layout;

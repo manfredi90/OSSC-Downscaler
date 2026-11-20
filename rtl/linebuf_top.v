@@ -79,6 +79,10 @@ module linebuf_top (
     // L(k), written at line k (st 0). Each line ends a row and starts the
     // next one, weights 16 / 48 (upper) or 48 / 16 (lower) in 1/64.
     input bob,
+    // 720p with line blending off (with w43): the nearest input line per
+    // output row, unweighted: 540p lines 0, 1, 3 of each group; 1080i field
+    // A lines 0, 1, 2, field B lines 0, 2, 3 (first row at group position 0)
+    input w43_near,
     input fid_in,               // input field ID (capture clock domain): 1 = odd (upper)
     // field B groups start vflt_bofs lines later (0-3): 1 for the 1080i
     // flicker filter (1080p, groups of 2)
@@ -415,10 +419,12 @@ end
 
 // 720p weights for a group position: {end, start, a, b} (see the w43 port)
 function [13:0] w43_tab;
-    input bb, il, fb;
+    input bb, nr, il, fb;
     input [1:0] g;
     if (bb)     // 1080i input (see the bob port)
         w43_tab = fb ? {1'b1, 1'b1, 6'd48, 6'd16} : {1'b1, 1'b1, 6'd16, 6'd48};
+    else if (nr)    // nearest line (see the w43_near port): rows of 1 line, no start
+        w43_tab = {(il & fb) ? (g != 2'h1) : (il ? (g != 2'h3) : (g != 2'h2)), 1'b0, 12'h0};
     else case ({il, fb, g})
         4'b1000: w43_tab = {1'b1, 1'b0, 6'd43, 6'd0};
         4'b1001: w43_tab = {1'b1, 1'b0, 6'd0,  6'd0};
@@ -441,7 +447,7 @@ endfunction
 wire [2:0] ds_vdec_e = (ds_vdec == 3'd7) ? 3'd0 : ds_vdec;
 wire [2:0] next_gpos = (ypos_i == grp_start) ? 3'h0 : ((ds_gpos == ds_vdec_e) ? 3'h0 : ds_gpos + 3'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
-wire [13:0] w_next = w43_tab(bob, ds_ilace, fld_b, next_gpos[1:0]);
+wire [13:0] w_next = w43_tab(bob, w43_near, ds_ilace, fld_b, next_gpos[1:0]);
 
 // stages A/B: horizontal filter
 // (HD converter: average of 2 ADC samples or none; no 4-sample average)

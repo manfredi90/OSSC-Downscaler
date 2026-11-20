@@ -60,6 +60,7 @@ module scanconverter (
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
     input ds_w43,               // 720p: 3 weighted rows per 4 lines (see linebuf_top)
     input ds_bob,               // 1080i -> 540p: every field one frame, interpolated (see linebuf_top)
+    input ds_w43_near,          // 720p, line blending off: nearest lines (see linebuf_top)
     input [1:0] ds_vflt_bofs,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
@@ -402,6 +403,7 @@ linebuf_top #(
     .ds_ilace(ds_ilace),
     .w43(ds_w43),
     .bob(ds_bob),
+    .w43_near(ds_w43_near),
     .fid_in(FID_i),
     .vflt_bofs(ds_vflt_bofs),
     .in_field(in_field),
