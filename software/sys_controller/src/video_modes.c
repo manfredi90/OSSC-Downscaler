@@ -1131,6 +1131,12 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // two output fields per input frame)
     vm_conf->ds_ilace = m->ilace || (m->i2p && !m->bob);
     vm_conf->ds_i2p = m->i2p;
+#ifdef DS_HD
+    // standard timing: the HDMI DE always covers the 1920x540 window of
+    // 1080i (pillar- / letterboxed 480p and VGA: black around the picture;
+    // displays that check the active size reject 1440x480 and such)
+    vm_conf->ds_stdde = m->std;
+#endif
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
@@ -1714,6 +1720,7 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
         vm_out->timings.interlaced = 1;
         vm_out->vic = cc->ds_480i ? HDMI_1080i60 : HDMI_Unknown;
         vm_conf->ds_i2p = !cc->ds_480i;
+        vm_conf->ds_stdde = 1;
     } else {
         vm_out->timings.v_total = 562;
         vm_out->timings.interlaced = 0;

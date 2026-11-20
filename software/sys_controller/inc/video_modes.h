@@ -189,6 +189,7 @@ typedef struct {
     uint8_t ds_lb_slots;    //   number of lines
     uint8_t ds_lb_rgb;      //   1 = RGB, one pixel per word (else YCbCr 4:2:2)
     uint8_t ds_i2p;         // 480i/576i input shown as 240p/288p
+    uint8_t ds_stdde;       // HD converter, standard timing: DE on the 1920x540 1080i window
     uint8_t ds_vflt;        // 480p -> 480i flicker filter on
     uint8_t ds_vflt_bofs;   //   field B groups start 0-3 lines later (flicker filters)
     uint8_t ds_vflt_a;      //   outer weight (1/16)

@@ -724,8 +724,8 @@ void update_sc_config()
         sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | ((vm_conf.ds_vflt | vm_conf.ds_w43) << 5) | ((alt_u32)vm_conf.ds_bob << 24) | ((alt_u32)vm_conf.ds_w43_near << 25) | ((vm_conf.ds_vflt_bofs & 1) << 6) | ((alt_u32)((vm_conf.ds_vflt_bofs >> 1) & 1) << 23) |
                                              (((vm_conf.ds_vdec >> 2) & 1) << 7) | ((vm_conf.ds_field_cfg & 0xff) << 8) |
                                              ((alt_u32)(vm_conf.ds_vflt_a & 0x1f) << 16) | ((alt_u32)((vm_conf.ds_field_cfg >> 8) & 3) << 21) |
-                                             (vm_conf.ds_i2p << 4)) :
-                         (vm_conf.ds_i2p << 4);
+                                             (vm_conf.ds_i2p << 4) | ((alt_u32)vm_conf.ds_stdde << 26)) :
+                         (vm_conf.ds_i2p << 4) | ((alt_u32)vm_conf.ds_stdde << 26);
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
                           (((h_synclen >> 8) & 1) << 2) |

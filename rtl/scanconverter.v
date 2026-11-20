@@ -58,6 +58,7 @@ module scanconverter (
     input ds_ilace,
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
+    input ds_stdde,             // HD converter, standard timing: DE always the 1920x540 1080i window (black around the picture)
     input ds_w43,               // 720p: 3 weighted rows per 4 lines (see linebuf_top)
     input ds_bob,               // 1080i -> 540p: every field one frame, interpolated (see linebuf_top)
     input ds_w43_near,          // 720p, line blending off: nearest lines (see linebuf_top)
@@ -255,6 +256,11 @@ reg HSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg CSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg VSYNC_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg DE_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
+// HD converter, standard timing: DE on the 1080i active window (2200 clocks:
+// hsync 44 + back porch 148, 1920 active; lines 20-559 of each field), so
+// that displays which check the active size see 1920x1080i / 1920x540 for
+// pillar- / letterboxed pictures too; outside the picture (DE_pp) black
+reg DEs_pp[PP_PL_START:PP_PL_END] /* synthesis ramstyle = "logic" */;
 reg [12:0] xpos_pp[PP_PL_START:PP_PL_START];
 reg [10:0] ypos_pp[PP_PL_START:PP_PL_START];
 // Instead of carrying the 24-bit position through the whole pipeline, only
@@ -586,6 +592,7 @@ always @(posedge PCLK_OUT_i) begin
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN) | ((v_cnt == V_TOTAL) & (h_cnt >= (H_TOTAL/2)))) ? 1'b0 : 1'b1;
     else
         VSYNC_pp[1] <= ((v_cnt < V_SYNCLEN-1) | ((v_cnt == V_SYNCLEN-1) & (h_cnt < (H_TOTAL/2)))) ? 1'b0 : 1'b1;
+    DEs_pp[1] <= (h_cnt >= 13'd192) & (h_cnt < 13'd2112) & (v_cnt >= 11'd20) & (v_cnt < 11'd560);
     DE_pp[1] <= (h_cnt >= H_SYNCLEN+H_BACKPORCH) & (h_cnt < H_SYNCLEN+H_BACKPORCH+H_ACTIVE-panasonic_adjust) & (v_cnt >= V_SYNCLEN+V_BACKPORCH) & (v_cnt < V_SYNCLEN+V_BACKPORCH+V_ACTIVE);
 
     if (h_avidstart) begin
@@ -693,6 +700,7 @@ always @(posedge PCLK_OUT_i) begin
         HSYNC_pp[pp_idx] <= HSYNC_pp[pp_idx-1];
         VSYNC_pp[pp_idx] <= VSYNC_pp[pp_idx-1];
         DE_pp[pp_idx] <= DE_pp[pp_idx-1];
+        DEs_pp[pp_idx] <= DEs_pp[pp_idx-1];
     end
     CSYNC_pp[5] <= cs_d;
     for(pp_idx = 6; pp_idx <= PP_PL_END; pp_idx = pp_idx+1)
@@ -802,13 +810,14 @@ always @(posedge PCLK_OUT_i) begin
 end
 
 // Output
-assign R_o = R_pp[PP_PL_END];
-assign G_o = G_pp[PP_PL_END];
-assign B_o = B_pp[PP_PL_END];
+wire pic_blank = ds_stdde & ~DE_pp[PP_PL_END];
+assign R_o = pic_blank ? 8'h0 : R_pp[PP_PL_END];
+assign G_o = pic_blank ? 8'h0 : G_pp[PP_PL_END];
+assign B_o = pic_blank ? 8'h0 : B_pp[PP_PL_END];
 assign HSYNC_o = HSYNC_pp[PP_PL_END];
 assign CSYNC_o = CSYNC_pp[PP_PL_END];
 assign VSYNC_o = VSYNC_pp[PP_PL_END];
-assign DE_o = DE_pp[PP_PL_END];
+assign DE_o = ds_stdde ? DEs_pp[PP_PL_END] : DE_pp[PP_PL_END];
 assign xpos_o = xpos_end[12] ? 12'hfff : xpos_end[11:0];   // saturate for OSD
 assign ypos_o = ypos_end;
 

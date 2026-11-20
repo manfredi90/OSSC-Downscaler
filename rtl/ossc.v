@@ -111,6 +111,7 @@ wire ds_w43 = sl_config[5];
 wire ds_bob = sl_config[24];
 // HD converter: 720p with line blending off, nearest lines (see linebuf_top)
 wire ds_w43_near = sl_config[25];
+wire ds_stdde = sl_config[26];              // standard timing: DE on the 1080i window
 wire [1:0] ds_vflt_bofs = {sl_config[23], sl_config[6]};   // field B group offset (lines)
 wire [9:0] ds_lb_stride = sl_config3[9:0];  // line buffer layout 3: words per line
 wire [5:0] ds_lb_slots = sl_config3[15:10]; //   number of lines
@@ -584,6 +585,7 @@ scanconverter #(
     .ds_w43(ds_w43),
     .ds_bob(ds_bob),
     .ds_w43_near(ds_w43_near),
+    .ds_stdde(ds_stdde),
     .ds_vflt_bofs(ds_vflt_bofs),
     .lb_stride(ds_lb_stride),
     .lb_slots(ds_lb_slots),
