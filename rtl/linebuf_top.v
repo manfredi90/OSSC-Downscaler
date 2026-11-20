@@ -450,18 +450,22 @@ wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
 wire [13:0] w_next = w43_tab(bob, w43_near, ds_ilace, fld_b, next_gpos[1:0]);
 
 // stages A/B: horizontal filter
-// (HD converter: average of 2 ADC samples or none; no 4-sample average)
-reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b;
+// (HD converter: average of 2 or 4 ADC samples, or none)
+reg [7:0] R_a, G_a, B_a, R_b, G_b, B_b, R_c, G_c, B_c, R_d, G_d, B_d;
 reg [10:0] x_a, x_b;
 reg v_a, v_b;
 reg [7:0] Rr_b, Gr_b, Br_b;
-reg [8:0] s2R_b, s2G_b, s2B_b;
+reg [8:0] s2R_b, s2G_b, s2B_b, s2R_cd, s2G_cd, s2B_cd;
+wire [9:0] s4R = {1'b0, s2R_b} + {1'b0, s2R_cd};
+wire [9:0] s4G = {1'b0, s2G_b} + {1'b0, s2G_cd};
+wire [9:0] s4B = {1'b0, s2B_b} + {1'b0, s2B_cd};
 reg [7:0] R_h, G_h, B_h;
 always @(*) begin
-    if (ds_hfilt == 2'h1)
-        {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
-    else
-        {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
+    case (ds_hfilt)
+        2'h1: {R_h, G_h, B_h} = {s2R_b[8:1], s2G_b[8:1], s2B_b[8:1]};
+        2'h2: {R_h, G_h, B_h} = {s4R[9:2], s4G[9:2], s4B[9:2]};
+        default: {R_h, G_h, B_h} = {Rr_b, Gr_b, Br_b};
+    endcase
 end
 
 // stage 1 registers
@@ -477,6 +481,8 @@ always @(posedge PCLK_CAP_i) begin
     // stage A
     {R_a, G_a, B_a} <= {R_i, G_i, B_i};
     {R_b, G_b, B_b} <= {R_a, G_a, B_a};
+    {R_c, G_c, B_c} <= {R_b, G_b, B_b};
+    {R_d, G_d, B_d} <= {R_c, G_c, B_c};
     x_a <= xpos_i;
     v_a <= DE_i & datavalid_i & wr_x_ok;
 
@@ -484,6 +490,9 @@ always @(posedge PCLK_CAP_i) begin
     s2R_b <= {1'b0, R_a} + {1'b0, R_b};
     s2G_b <= {1'b0, G_a} + {1'b0, G_b};
     s2B_b <= {1'b0, B_a} + {1'b0, B_b};
+    s2R_cd <= {1'b0, R_c} + {1'b0, R_d};
+    s2G_cd <= {1'b0, G_c} + {1'b0, G_d};
+    s2B_cd <= {1'b0, B_c} + {1'b0, B_d};
     {Rr_b, Gr_b, Br_b} <= {R_a, G_a, B_a};
     x_b <= x_a;
     v_b <= v_a;

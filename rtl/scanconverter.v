@@ -400,7 +400,7 @@ linebuf_top #(
     .lb_layout(lb_layout),
     .ds_hfilt(ds_hfilt),
     .ds_field_cfg(ds_field_cfg),
-    .ds_ilace(ds_ilace),
+    .ds_ilace(ds_ilace & ~ds_i2p),    // 540p on interlaced timing: progressive rows
     .w43(ds_w43),
     .bob(ds_bob),
     .w43_near(ds_w43_near),

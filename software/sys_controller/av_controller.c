@@ -75,6 +75,9 @@ alt_u8 update_cur_vm;
 // Downscaler firmware: set while the internal 15kHz test pattern ("safe
 // screen") is output instead of the input video
 alt_u8 ds_safe_screen;
+#ifdef DS_HD
+static alt_u8 ds_tp_timing, ds_tp_480i;     // test pattern drawn with these
+#endif
 
 // Default settings
 const settings_t ts_default = {
@@ -475,7 +478,7 @@ status_t get_status(tvp_sync_input_t syncinput)
             (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos) ||
             (tc.ds_native != cm.cc.ds_native) || (tc.ds_width != cm.cc.ds_width) ||
             (tc.ds_fixlines != cm.cc.ds_fixlines) ||
-            (tc.ds_i2p != cm.cc.ds_i2p) || (tc.ds_flicker != cm.cc.ds_flicker))
+            (tc.ds_i2p != cm.cc.ds_i2p) || (tc.ds_flicker != cm.cc.ds_flicker) || (tc.ds_timing != cm.cc.ds_timing))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -720,7 +723,8 @@ void update_sc_config()
         hv_out_config.h_synclen = h_synclen & 0xff;
         sl_config.data = vm_conf.ds_vdec ? (vm_conf.ds_hfilt | (vm_conf.ds_fswap << 2) | (vm_conf.ds_ilace << 3) | ((vm_conf.ds_vflt | vm_conf.ds_w43) << 5) | ((alt_u32)vm_conf.ds_bob << 24) | ((alt_u32)vm_conf.ds_w43_near << 25) | ((vm_conf.ds_vflt_bofs & 1) << 6) | ((alt_u32)((vm_conf.ds_vflt_bofs >> 1) & 1) << 23) |
                                              (((vm_conf.ds_vdec >> 2) & 1) << 7) | ((vm_conf.ds_field_cfg & 0xff) << 8) |
-                                             ((alt_u32)(vm_conf.ds_vflt_a & 0x1f) << 16) | ((alt_u32)((vm_conf.ds_field_cfg >> 8) & 3) << 21)) :
+                                             ((alt_u32)(vm_conf.ds_vflt_a & 0x1f) << 16) | ((alt_u32)((vm_conf.ds_field_cfg >> 8) & 3) << 21) |
+                                             (vm_conf.ds_i2p << 4)) :
                          (vm_conf.ds_i2p << 4);
         sl_config2.data = ((vm_out->timings.h_total >> 12) & 1) |
                           (((vm_out->timings.h_active >> 12) & 1) << 1) |
@@ -773,6 +777,11 @@ void show_safe_screen(const char *reason)
     usleep(10);
 
     ds_pll_active = 0;
+#ifdef DS_HD
+    // the test pattern timing follows "Output timing" / "Output mode"
+    ds_tp_timing = cm.cc.ds_timing = tc.ds_timing;
+    ds_tp_480i = cm.cc.ds_480i = tc.ds_480i;
+#endif
     get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
 #ifdef DS_HD
     ds_tp_pll();
@@ -1581,6 +1590,16 @@ int main(int argc, char **argv, char **envp)
             }
         }
 
+#ifdef DS_HD
+        // test pattern shown: redraw it when "Output timing" / "Output mode"
+        // change
+        if (ds_safe_screen && ((tc.ds_timing != ds_tp_timing) || (tc.ds_480i != ds_tp_480i))) {
+            char r[LCD_ROW_LEN+1];
+            strncpy(r, (cm.avinput == AV_TESTPAT) ? "" : row2, LCD_ROW_LEN+1);
+            r[LCD_ROW_LEN] = 0;
+            show_safe_screen(r);
+        }
+#endif
         // Hardware 15kHz watchdog tripped and stays tripped: fall back to the
         // safe screen (should never happen unless a mode is wrong)
         if (sc->fe_status.wd_kill && !ds_safe_screen) {

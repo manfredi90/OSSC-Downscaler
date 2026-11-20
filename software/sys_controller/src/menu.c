@@ -102,7 +102,8 @@ static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
 // HD converter: "Serrated" = broad pulses every half line, no equalizing pulses
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Serrated" };
 static const char* const ds_480p_fmt_desc[] = { "4:3", "Wide 16:9" };
-static const char* const ds_480p_smp_desc[] = { "Stable (360)", "Sharp (464)" };
+static const char* const ds_480p_smp_desc[] = { "Stable", "Sharp" };
+static const char* const ds_timing_desc[] = { "Standard", "Source pixels" };
 #else
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
 #endif
@@ -287,6 +288,9 @@ MENU(menu_settings, P99_PROTECT({ \
 
 MENU(menu_downscaler, P99_PROTECT({ \
     { "Output mode",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_480i,      OPT_WRAP,   SETTING_ITEM(ds_out_desc) } } },
+#ifdef DS_HD
+    { "Output timing",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_timing,    OPT_WRAP,   SETTING_ITEM(ds_timing_desc) } } },
+#endif
     { "CSync on HSYNC",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_csync,     OPT_WRAP,   SETTING_ITEM(ds_csync_desc) } } },
     { "HDMI range",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_out_range, OPT_WRAP,   SETTING_ITEM(ds_range_desc) } } },
 #ifdef DS_HD

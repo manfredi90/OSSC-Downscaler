@@ -197,7 +197,20 @@ typedef struct {
     // HD converter, 1080i input: every field becomes one progressive frame
     // (with w43: 2-line weights per field, see linebuf_top)
     uint8_t bob;
+    // HD converter "Output timing": 0 = "Source pixels" row (line length
+    // chosen for the "Width"), 1 = "Standard" row (2200 clocks per line,
+    // 74.25MHz / 74.18MHz)
+    uint8_t std;
+    // 480p / VGA rows: "480p sampling" Sharp (otherwise Stable)
+    uint8_t sharp;
+    // 540p on the 1080i line timing (fields of 563 and 562 lines, both
+    // vsyncs at a line start: 562.5 lines per frame, as 1080i): the output
+    // line count is not a whole number per input frame, so 2200 clocks per
+    // line at 74.25MHz are exact
+    uint8_t i2p;
 } ds_mode_t;
+// output counted as 1080i (1125 lines per two fields)
+#define DS_TILACE(m)        ((m)->ilace || (m)->i2p)
 
 #ifndef P4_ADC
 #define P4_ADC 1110
@@ -243,10 +256,49 @@ static const ds_mode_t ds_modes[] = {
     { HDMI_480p60,      525,      429, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
     { HDMI_640x480p60,  525,      400, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
     { HDMI_640x480p60,  525,      400, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
-    { HDMI_480p60,      525, P4_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
-    { HDMI_480p60,      525, P4_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667 },
-    { HDMI_640x480p60,  525, VG_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667 },
-    { HDMI_640x480p60,  525, VG_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667 },
+    { HDMI_480p60,      525, P4_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667, 0, 0, 0, 1 },
+    { HDMI_480p60,      525, P4_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667, 0, 0, 0, 1 },
+    { HDMI_640x480p60,  525, VG_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667, 0, 0, 0, 1 },
+    { HDMI_640x480p60,  525, VG_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667, 0, 0, 0, 1 },
+
+    /* ---- "Output timing" Standard: 2200 clocks per line, 1125 lines per
+     * two output frames (1080i, or 540p as fields of 563 + 562 lines),
+     * 74.25MHz at 60Hz, 74.18MHz at 59.94Hz, for displays and HDMI-component
+     * transcoders that only take the standard 1080i timing. The ADC rate is
+     * chosen so that the output clock is an exact PLL ratio of it and the
+     * stored pixels fill the picture width with a whole number of clocks:
+     *  1080p: as above (1920 pixels, 1 clock each)
+     *  720p: ADC at 1.5x (2475 samples per line, 111.4MHz), 1920 pixels
+     *  1080i: the input timing itself (1:1)
+     *  480p Stable: ADC at 2x (1716, 54MHz), 4 samples averaged = 2 source
+     *   pixels (360 pixels, 2:1 as "Source pixels"), 4:3 4 clocks each
+     *   (1440: ~12% wider than 4:3), Wide 5 (1800)
+     *  480p Sharp: ADC 1000 / 1100 per line, 2 averaged, 418 x 3 clocks
+     *   (4:3) / 460 x 4 (Wide)
+     *  VGA Stable: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6
+     *   (1920); Sharp: ADC 1100, 2 averaged, 440 x 3 (4:3) / 4 (Wide)
+     * (480p / VGA rows: ar43 1 = 4:3 only, 2 = Wide only) */
+    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1, 0, 1 },
+    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1 },
+    { HDMI_720p60,      750, 2475, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0,   0,   2475,   0, 1, 0, 1, 0, 1 },
+    { HDMI_720p60,      750, 2475, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0,   0,   2475,   0, 1, 0, 1 },
+    { HDMI_1080i60,    1125, 2200, 2200,1125, 0, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 1, 1, 1, 0, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 2, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1, 0, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1, 0, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1 },
+    { HDMI_480p60,      525,  500, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1000, 667, 0, 0, 1, 1, 1 },
+    { HDMI_480p60,      525,  500, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1000, 667, 0, 0, 1, 1 },
+    { HDMI_480p60,      525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
+    { HDMI_480p60,      525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
+    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1, 0, 1 },
+    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1 },
+    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 5, 3,  0, 0,   0, 2, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1, 0, 1 },
+    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 5, 3,  0, 0,   0, 2, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1 },
+    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
+    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
+    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
+    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
@@ -436,8 +488,14 @@ static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     if (!!m->bob != !!vm_in->timings.interlaced)
         return 0;
 #ifdef DS_HD
+    // "Output timing": Standard (0) / Source pixels (1) rows
+    if (m->std != !cc->ds_timing)
+        return 0;
+    // Standard 480p / VGA rows: one per "480p format"
+    if (m->ar43 && (m->ar43 != (cc->ds_720p_ar ? 2 : 1)))
+        return 0;
     if (m->width_pm)
-        return (m->adc_h_total != 0) == (cc->ds_i2p != 0);
+        return m->sharp == (cc->ds_i2p != 0);
 #endif
     return 1;
 }
@@ -669,6 +727,14 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 #endif
     if (oh_max > DS_OUT_H_TOTAL_MAX)
         oh_max = DS_OUT_H_TOTAL_MAX;
+#ifdef DS_HD
+    // "Output timing" Standard: 2200 clocks per line only
+    if (row->std) {
+        if ((oh_min > 2200) || (oh_max < 2200))
+            return -1;
+        oh_min = oh_max = 2200;
+    }
+#endif
 
     for (oh=oh_min; oh<=oh_max; oh++) {
         for (li_i=0; li_i<n_lines; li_i++) {
@@ -757,7 +823,7 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
                          int64_t *lo_o, int64_t *hi_o, int64_t *u_oline_o, int64_t *u_oc_o) {
     int64_t hin = vm_in->timings.h_total;
     int64_t vin = m->in_v_total;
-    int64_t fo2 = m->ilace ? m->out_v_total : 2*m->out_v_total;     // 2 x output lines per input frame
+    int64_t fo2 = DS_TILACE(m) ? m->out_v_total : 2*m->out_v_total;     // 2 x output lines per input frame
     int64_t u_ipx = (int64_t)m->out_h_total*fo2;
     int64_t u_iline = u_ipx*hin;
     // (1080i input: the "input frame" is one field, vin/2 lines)
@@ -791,9 +857,12 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // relative to its output frame (its first line starts 563 lines after
     // the upper field's, its output frame 562.5 lines after).
     (void)g;
-    for (f=0; f<((m->ilace || m->bob) ? 2 : 1); f++) {
+    // 540p on the 1080i timing (i2p): the second output field (562 lines)
+    // starts half a line later relative to its input frame, as in 1080i; with
+    // 1080i input both shifts cancel.
+    for (f=0; f<((DS_TILACE(m) || m->bob) ? 2 : 1); f++) {
         int64_t st = f ? st_b : st_a;
-        int64_t ofs = f ? (m->bob ? -u_iline/2 : u_oline/2) : 0;
+        int64_t ofs = f ? ((m->bob ? -u_iline/2 : 0) + (DS_TILACE(m) ? u_oline/2 : 0)) : 0;
         int w43r = m->w43 && !m->bob;
         int nr = w43r ? 6 : 2;
         for (i=0; i<nr; i++) {
@@ -906,11 +975,11 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 #endif
         uint16_t oh, lines, n, mm, c;
 
-        if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
+        if (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, DS_TILACE(m), (uint32_t)smp_active*rpt, target_pm,
                          cc->ds_fixlines, &oh, &lines, &n, &mm, &c) != 0) {
             // no 262 line solution: fall back to 260-264 lines
             if (!cc->ds_fixlines ||
-                (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, m->ilace, (uint32_t)smp_active*rpt, target_pm,
+                (ds_pll_solve(m, cc, vm_in, smp_active, rpt, fin_khz, in_h_total, m->in_v_total, DS_TILACE(m), (uint32_t)smp_active*rpt, target_pm,
                               0, &oh, &lines, &n, &mm, &c) != 0))
                 return -1;
         }
@@ -994,7 +1063,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         // back / front porch lines are black)
         int rows = DS_OUT_V_ROWS(m);
         int pad = (DS_OUT_V_FIELD_ACT(m) - rows)/2;
-        int field_lines = m->ilace ? (m->out_v_total/2) : m->out_v_total;
+        int field_lines = DS_TILACE(m) ? (m->out_v_total/2) : m->out_v_total;
         int vbp_max = field_lines - DS_OUT_V_FPORCH - DS_OUT_V_SYNCLEN - rows;
         int vbp = ((m->t0_auto || (m->out_v_backporch > vbp_max)) ? (vbp_max - pad) : m->out_v_backporch) + ((int)cc->ds_vpos - SIGNED_NUMVAL_ZERO);
         int v_active = rows;
@@ -1030,7 +1099,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         ds_framesync_line = (delay > 0) ? (field_lines - delay) : -delay;
         ds_hofs = hofs;
     }
-    vm_out->timings.interlaced = !!m->ilace;
+    vm_out->timings.interlaced = !!DS_TILACE(m);
 #ifdef DS_HD
     vm_out->type = VIDEO_HDTV;
     vm_out->ar.h = 16;
@@ -1057,7 +1126,11 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // "Line phase" shifts the line groups by 0..vdec lines so that they can be
     // aligned with integer-scaled content (blending a group of identical
     // lines then gives exactly the unblended picture).
-    vm_conf->ds_ilace = !!m->ilace;
+    // (540p on the 1080i timing: one input frame per output field, as 1080i,
+    // but the same rows in both fields, see scanconverter; with 1080i input
+    // two output fields per input frame)
+    vm_conf->ds_ilace = m->ilace || (m->i2p && !m->bob);
+    vm_conf->ds_i2p = m->i2p;
     vm_conf->ds_fswap = 0;     // field order: upper rows in the odd field (verified)
     vm_conf->ds_vblend = !cc->ds_vblend_off && !m->ilace;
     vm_conf->y_start_lb = m->v_start + (cc->ds_vphase % (m->vdec+1));
@@ -1630,11 +1703,22 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
             break;
     }
     memcpy(vm_out, &video_modes_plm_default[i], sizeof(mode_data_t));
-    vm_out->timings.v_total = 562;
-    vm_out->timings.interlaced = 0;
-    vm_out->vic = HDMI_Unknown;
     vm_out->ar.h = 16;
     vm_out->ar.v = 9;
+    if (!cc->ds_timing) {
+        // "Output timing" Standard: 1125 lines (60Hz): 1080i with "Output
+        // mode" 1080i (both fields show the 540 lines), otherwise 540p on
+        // the 1080i timing (fields of 563 + 562 lines, both vsyncs at a
+        // line start)
+        vm_out->timings.v_total = 1125;
+        vm_out->timings.interlaced = 1;
+        vm_out->vic = cc->ds_480i ? HDMI_1080i60 : HDMI_Unknown;
+        vm_conf->ds_i2p = !cc->ds_480i;
+    } else {
+        vm_out->timings.v_total = 562;
+        vm_out->timings.interlaced = 0;
+        vm_out->vic = HDMI_Unknown;
+    }
 #else
     for (i=0; i<num_video_modes_plm; i++) {
         if (video_modes_plm_default[i].vic == HDMI_240p60)
