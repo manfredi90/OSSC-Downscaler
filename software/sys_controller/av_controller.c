@@ -1600,6 +1600,18 @@ int main(int argc, char **argv, char **envp)
             show_safe_screen(r);
         }
 #endif
+        // test pattern shown: apply its design, CSync and HDMI range right
+        // away (get_status(), which does it otherwise, does not run for the
+        // test pattern input)
+        if (ds_safe_screen && ((tc.ds_tp_sel != cm.cc.ds_tp_sel) || (tc.ds_csync != cm.cc.ds_csync) || (tc.ds_out_range != cm.cc.ds_out_range))) {
+            int range_changed = (tc.ds_out_range != cm.cc.ds_out_range);
+            cm.cc.ds_tp_sel = tc.ds_tp_sel;
+            cm.cc.ds_csync = tc.ds_csync;
+            cm.cc.ds_out_range = tc.ds_out_range;
+            update_sc_config();
+            if (range_changed && (cm.cc.tx_mode != TX_DVI))
+                HDMITX_SetAVIInfoFrame(vmode_out.vic, (cm.cc.tx_mode == TX_HDMI_RGB) ? F_MODE_RGB444 : F_MODE_YUV444, cm.cc.hdmi_ar, 0, cm.cc.hdmi_itc, vm_conf.hdmitx_pixr_ifr);
+        }
         // Hardware 15kHz watchdog tripped and stays tripped: fall back to the
         // safe screen (should never happen unless a mode is wrong)
         if (sc->fe_status.wd_kill && !ds_safe_screen) {
