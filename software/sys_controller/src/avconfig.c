@@ -43,11 +43,7 @@ const avconfig_t tc_default = {
     .pm_480i = 0,
     .pm_1080i = 0,
     .l3_mode = 0,
-#ifdef DS_HD
-    .ds_csync = 0,  // HD converter: separate H+V (HDMI displays and transcoders need them)
-#else
     .ds_csync = 3,  // standard (equalizing + serrations)
-#endif
     .ds_native = 1,     // full resolution sampling (Standard is kept in the code, not in the menu)
     .ds_hpos = SIGNED_NUMVAL_ZERO,
     .ds_vpos = SIGNED_NUMVAL_ZERO,
