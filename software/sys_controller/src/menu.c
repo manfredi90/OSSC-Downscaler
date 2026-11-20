@@ -308,9 +308,8 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "H. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_hpos,       OPT_NOWRAP, DS_HPOS_MIN, DS_HPOS_MAX, signed_disp } } },
     { "V. position",                            OPT_AVCONFIG_NUMVALUE,  { .num = { &tc.ds_vpos,       OPT_NOWRAP, DS_VPOS_MIN, DS_VPOS_MAX, signed_disp } } },
     { "<Diagnostics   >",                       OPT_FUNC_CALL,          { .fun = { ds_diagnostics, NULL } } },
-#ifndef DS_HD
+    // (HD converter: Grid, Monoscope and RGB drawn at 1920x540)
     { "Test pattern",                           OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_tp_sel,    OPT_WRAP,   SETTING_ITEM(ds_tp_desc) } } },
-#endif
 }))
 
 

@@ -72,6 +72,14 @@ module linebuf_top (
     // The first row of a frame is written at group position 1 (540p, field
     // B) or 0 (field A): ds_field_cfg st.
     input w43,
+    // 1080i -> 540p (with w43, groups of 1 line): every input field becomes a
+    // 540p frame, the fields interpolated to the same output line centers
+    // (frame line 2k+0.5): upper field (FID odd) 3/4 L(k) + 1/4 L(k+1),
+    // written at line k+1 (st 1); lower field (FID even) 1/4 L(k-1) + 3/4
+    // L(k), written at line k (st 0). Each line ends a row and starts the
+    // next one, weights 16 / 48 (upper) or 48 / 16 (lower) in 1/64.
+    input bob,
+    input fid_in,               // input field ID (capture clock domain): 1 = odd (upper)
     // field B groups start vflt_bofs lines later (0-3): 1 for the 1080i
     // flicker filter (1080p, groups of 2)
     input [1:0] vflt_bofs,
@@ -384,7 +392,8 @@ reg [1:0] in_field_sync;
 always @(posedge PCLK_CAP_i)
     in_field_sync <= {in_field_sync[0], in_field};
 
-wire fld_b = ds_ilace & in_field_sync[1];
+// (1080i input: the lower field)
+wire fld_b = bob ? ~fid_in : (ds_ilace & in_field_sync[1]);
 wire [2:0] st_gpos = fld_b ? {ds_field_cfg[9], ds_field_cfg[5:4]} : {ds_field_cfg[8], ds_field_cfg[1:0]};
 wire [1:0] n_field = fld_b ? ds_field_cfg[7:6] : ds_field_cfg[3:2];
 wire [2:0] n_blend = (n_field == 2'h0) ? 3'h4 : {1'b0, n_field};      // 1..4
@@ -406,9 +415,11 @@ end
 
 // 720p weights for a group position: {end, start, a, b} (see the w43 port)
 function [13:0] w43_tab;
-    input il, fb;
+    input bb, il, fb;
     input [1:0] g;
-    case ({il, fb, g})
+    if (bb)     // 1080i input (see the bob port)
+        w43_tab = fb ? {1'b1, 1'b1, 6'd48, 6'd16} : {1'b1, 1'b1, 6'd16, 6'd48};
+    else case ({il, fb, g})
         4'b1000: w43_tab = {1'b1, 1'b0, 6'd43, 6'd0};
         4'b1001: w43_tab = {1'b1, 1'b0, 6'd0,  6'd0};
         4'b1010: w43_tab = {1'b0, 1'b1, 6'd0,  6'd43};
@@ -430,7 +441,7 @@ endfunction
 wire [2:0] ds_vdec_e = (ds_vdec == 3'd7) ? 3'd0 : ds_vdec;
 wire [2:0] next_gpos = (ypos_i == grp_start) ? 3'h0 : ((ds_gpos == ds_vdec_e) ? 3'h0 : ds_gpos + 3'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
-wire [13:0] w_next = w43_tab(ds_ilace, fld_b, next_gpos[1:0]);
+wire [13:0] w_next = w43_tab(bob, ds_ilace, fld_b, next_gpos[1:0]);
 
 // stages A/B: horizontal filter
 // (HD converter: average of 2 ADC samples or none; no 4-sample average)

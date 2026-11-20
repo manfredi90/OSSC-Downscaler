@@ -194,6 +194,9 @@ typedef struct {
     // HD converter, 720p: groups of 4 lines -> 3 rows, each the weighted sum
     // of 2 lines (or 1), see linebuf_top
     uint8_t w43;
+    // HD converter, 1080i input: every field becomes one progressive frame
+    // (with w43: 2-line weights per field, see linebuf_top)
+    uint8_t bob;
 } ds_mode_t;
 
 #ifndef P4_ADC
@@ -217,6 +220,14 @@ static const ds_mode_t ds_modes[] = {
     // 1 clock per pixel (~49.5MHz), YCbCr 4:2:2 (640 words).
     { HDMI_720p60,      750, 1650, 2200, 562, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
     { HDMI_720p60,      750, 1650, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
+    // 1080i60 -> 540p: every field (540 lines) becomes one 540p frame, rows
+    // of 1 line interpolated so that both fields land on the same output
+    // lines (upper field 3/4 L(k) + 1/4 L(k+1), lower 1/4 L(k-1) + 3/4 L(k):
+    // no up/down bobbing, see linebuf_top). The 562-line output frames are
+    // exactly one field long (2 per input frame of 1125 lines); the output is
+    // resynced at the upper field. All 1920 pixels (74.25MHz), 1 clock per
+    // pixel, YCbCr 4:2:2. Also used with "1080i" output (no 1080i row).
+    { HDMI_1080i60,    1125, 2200, 2200, 562, 0, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1 },
     // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
     // value 7), 480 rows centered in the 540 (30 black lines above and
     // below), 4:3 pillarboxed (2/3 of the 16:9 width) or "Wide" (anamorphic
@@ -368,8 +379,10 @@ static const ds_mode_t ds_modes[] = {
 // configs (M = 100-120), so M is kept in a similar range: v0.16 used
 // M = 262 at 3.6MHz for VGA, which showed shimmer.
 #define DS_PLL_PFD_MIN_KHZ  5000
-// VCO: 600-1300MHz in the datasheet, 650 for margin at the low end
+// VCO: 600-1300MHz in the datasheet, 650-1250 for margin at both ends (in the
+// 15kHz firmware, VGA Wide 480i at 1278MHz drifted out of lock cyclically)
 #define DS_PLL_VCO_MIN_KHZ  650000
+#define DS_PLL_VCO_MAX_KHZ  1250000
 #define DS_PLL_M_MAX        200
 #define DS_OUT_V_ACTIVE_PAL 288
 // active lines per output field, and stored rows (Wide: 180 of them)
@@ -417,8 +430,11 @@ static int ds_hd_vic(HDMI_Video_Type vic) {
 }
 
 // HD converter, 480p / VGA rows: "480p sampling" (ds_i2p) 0 = Stable (ADC at
-// the source pixel clock, adc_h_total 0), 1 = Sharp (ADC at P4_ADC / VG_ADC)
-static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc) {
+// the source pixel clock, adc_h_total 0), 1 = Sharp (ADC at P4_ADC / VG_ADC).
+// Interlaced sources: the 1080i row (bob) only.
+static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in) {
+    if (!!m->bob != !!vm_in->timings.interlaced)
+        return 0;
 #ifdef DS_HD
     if (m->width_pm)
         return (m->adc_h_total != 0) == (cc->ds_i2p != 0);
@@ -437,9 +453,12 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
 
     uint8_t pal;
 
-    // 60Hz sources, and 50Hz for the PAL rows (576p)
+    // 60Hz sources, and 50Hz for the PAL rows (576p); interlaced: 1080i rows
+    // only (HD converter)
+#ifndef DS_HD
     if (vm_in->timings.interlaced)
         return NULL;
+#endif
     if ((vm_in->timings.v_hz_x100 >= 5800) && (vm_in->timings.v_hz_x100 <= 6200))
         pal = 0;
     else if ((vm_in->timings.v_hz_x100 >= 4800) && (vm_in->timings.v_hz_x100 <= 5200))
@@ -464,14 +483,14 @@ static const ds_mode_t* find_ds_mode(avconfig_t *cc, mode_data_t *preset, mode_d
         // selected, otherwise standard rows
         if (cc->ds_native) {
             for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-                if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) && ds_sampling_ok(&ds_modes[i], cc) &&
+                if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && (ds_mode_sampling(&ds_modes[i]) == 1) && ds_sampling_ok(&ds_modes[i], cc, vm_in) &&
                     (ds_modes[i].ilace == want[pass]) &&
                     (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar)))
                     return &ds_modes[i];
             }
         }
         for (i=0; i<sizeof(ds_modes)/sizeof(ds_mode_t); i++) {
-            if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && ds_sampling_ok(&ds_modes[i], cc) &&
+            if (ds_row_match(&ds_modes[i], preset) && (ds_modes[i].pal == pal) && ds_sampling_ok(&ds_modes[i], cc, vm_in) &&
                 ((ds_mode_sampling(&ds_modes[i]) == 0) || ds_modes[i].wide) &&     // "Wide" exists in full resolution only
                 (ds_modes[i].ilace == want[pass]) &&
                 (!ds_hd_vic(ds_modes[i].vic) || (ds_modes[i].ar43 == ar))) {
@@ -542,6 +561,14 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
         return;
     }
 #ifdef DS_HD
+    if (m->bob) {
+        // 1080i input (see linebuf_top): upper field rows written at line
+        // k+1, lower field rows at line k
+        *st_a = 1;
+        *st_b = 0;
+        *n_a = *n_b = 1;
+        return;
+    }
     if (m->w43) {
         // 720p (see linebuf_top): the first row of a group is written at line
         // 1 (540p, 1080i field B) or 0 (field A)
@@ -648,7 +675,8 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
             uint32_t hfreq = ((uint32_t)vm_in->timings.v_hz_x100*fo2)/200;     // output line rate (Hz)
             if ((hfreq < DS_HFREQ_MIN) || (hfreq > DS_HFREQ_MAX))
                 continue;
-            uint32_t num = oh*fo2, den = 2*hin*vin, g = ds_gcd(num, den), k, n;
+            // (1080i input: per field, vin/2 lines)
+            uint32_t num = oh*fo2, den = (row->bob ? 1 : 2)*hin*vin, g = ds_gcd(num, den), k, n;
             uint32_t err = (act*1000)/oh;
 
             err = (err > target_pm) ? (err - target_pm) : (target_pm - err);
@@ -669,7 +697,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     pfd = fin_khz/n;
                     vco = (fin_khz*m)/n;
                     out = vco/c;
-                    if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < DS_PLL_VCO_MIN_KHZ) || (vco > 1300000) ||
+                    if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < DS_PLL_VCO_MIN_KHZ) || (vco > DS_PLL_VCO_MAX_KHZ) ||
                         (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ))
                         continue;
                     // the line buffer must absorb the read/write drift of this line rate
@@ -712,7 +740,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 // row in its group of 4 (540p: 1, 2, 3; 1080i field A: 0, 1, 3; B: 1, 2, 3)
 static int64_t ds_row_line(const ds_mode_t *m, int f, int64_t st, int64_t r) {
 #ifdef DS_HD
-    if (m->w43) {
+    if (m->w43 && !m->bob) {
         static const uint8_t e[3][3] = {{1, 2, 3}, {0, 1, 3}, {1, 2, 3}};
         int t = m->ilace ? (f ? 2 : 1) : 0;
         return 4*(r/3) + e[t][r%3];
@@ -727,7 +755,8 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     int64_t fo2 = m->ilace ? m->out_v_total : 2*m->out_v_total;     // 2 x output lines per input frame
     int64_t u_ipx = (int64_t)m->out_h_total*fo2;
     int64_t u_iline = u_ipx*hin;
-    int64_t u_oc = 2*vin*hin;
+    // (1080i input: the "input frame" is one field, vin/2 lines)
+    int64_t u_oc = (m->bob ? 1 : 2)*vin*hin;
     int64_t u_oline = u_oc*m->out_h_total;
     int64_t y0 = vm_in->timings.v_synclen + vm_in->timings.v_backporch - 1 + m->v_start;
     int64_t off_in = vm_in->timings.h_synclen + vm_in->timings.h_backporch;
@@ -753,13 +782,17 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     // later relative to its input frame.
     // (720p rows: linear in r for each row of the group, so the first and
     // last three rows)
+    // 1080i input: the lower field's lines come half an input line later
+    // relative to its output frame (its first line starts 563 lines after
+    // the upper field's, its output frame 562.5 lines after).
     (void)g;
-    for (f=0; f<(m->ilace ? 2 : 1); f++) {
+    for (f=0; f<((m->ilace || m->bob) ? 2 : 1); f++) {
         int64_t st = f ? st_b : st_a;
-        int64_t ofs = f ? u_oline/2 : 0;
-        int nr = m->w43 ? 6 : 2;
+        int64_t ofs = f ? (m->bob ? -u_iline/2 : u_oline/2) : 0;
+        int w43r = m->w43 && !m->bob;
+        int nr = w43r ? 6 : 2;
         for (i=0; i<nr; i++) {
-            int64_t r = m->w43 ? ((i < 3) ? i : (k-6+i)) : (i ? (k-1) : 0);
+            int64_t r = w43r ? ((i < 3) ? i : (k-6+i)) : (i ? (k-1) : 0);
             int64_t l = (y0 + ds_row_line(m, f, st, r) + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
             int64_t h = (y0 + ds_row_line(m, f, st, r+d) + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
             if (l > lo) lo = l;
@@ -853,7 +886,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
 
     if (m->t0_auto) {
         // output line length / PLL ratio for the requested width
-        uint32_t fin_khz = (uint32_t)(((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000);
+        // (interlaced: v_hz is the field rate)
+        uint32_t fin_khz = (uint32_t)((((uint64_t)in_h_total*m->in_v_total*vm_in->timings.v_hz_x100)/100000) >> (m->bob ? 1 : 0));
 #ifdef DS_HD
         // "Width": 100% = 1920 / 2200 clocks of the line (1080i standard)
         // (times the row's picture width, pillarboxed sources)
@@ -1061,6 +1095,7 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     }
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_w43 = m->w43;
+    vm_conf->ds_bob = m->bob;
     // groups of 1 line: register value 7 (0 = stock line buffer mode)
     vm_conf->ds_vdec = m->vdec ? m->vdec : 7;
     vm_conf->ds_lb_layout = m->lb_layout;

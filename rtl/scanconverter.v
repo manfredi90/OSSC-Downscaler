@@ -59,6 +59,7 @@ module scanconverter (
     input ds_fswap,             // 480i: put field B (lower rows) in the odd field
     input ds_i2p,               // interlaced output timing with both vsyncs at a line start (480i -> 240p)
     input ds_w43,               // 720p: 3 weighted rows per 4 lines (see linebuf_top)
+    input ds_bob,               // 1080i -> 540p: every field one frame, interpolated (see linebuf_top)
     input [1:0] ds_vflt_bofs,
     input [9:0] lb_stride,      // line buffer layout 3: words per line
     input [5:0] lb_slots,       // line buffer layout 3: number of lines
@@ -400,6 +401,8 @@ linebuf_top #(
     .ds_field_cfg(ds_field_cfg),
     .ds_ilace(ds_ilace),
     .w43(ds_w43),
+    .bob(ds_bob),
+    .fid_in(FID_i),
     .vflt_bofs(ds_vflt_bofs),
     .in_field(in_field),
     .lb_stride(lb_stride),
@@ -425,9 +428,10 @@ linebuf_top #(
 );
 
 
-// HD converter: 1920x540 test pattern, the 720x480 generator area doubled
-// horizontally (1440 x 480 lines) and centered; the sides and the top /
-// bottom 30 lines get coordinates (0, 0) = black
+// HD converter: 1920x540 test pattern. The stock (Gray) pattern: the 720x480
+// generator area doubled horizontally (1440 x 480 lines) and centered; the
+// sides and the top / bottom 30 lines get coordinates (0, 0) = black. The
+// other designs are drawn natively at 1920x540.
 wire tp_in_win = (xpos_tp >= 13'd240) && (xpos_tp < 13'd1680) && (ypos_tp >= 11'd30) && (ypos_tp < 11'd510);
 wire [12:0] xpos_vg = tp_in_win ? ((xpos_tp - 13'd240) >> 1) : 13'd0;
 wire [10:0] ypos_vg = tp_in_win ? (ypos_tp - 11'd30) : 11'd0;
@@ -435,8 +439,10 @@ wire [10:0] ypos_vg = tp_in_win ? (ypos_tp - 11'd30) : 11'd0;
 videogen vg0 (
     .pclk           (PCLK_OUT_i),
     .xpos           (xpos_vg[11:0]),                  // 1440x480 window ->
-    .ypos           (ypos_vg),                        // 720x480 generator coords
-    .tp_sel         (2'b00),                          // HD converter: gray pattern only
+    .ypos           (ypos_vg),                        // 720x480 generator coords (stock pattern)
+    .xh             (xpos_tp[10:0]),                  // 1920x540 (the other patterns)
+    .yh             (ypos_tp[9:0]),
+    .tp_sel         (misc_config[10:9]),              // test pattern design
     .R_out          (R_vg),
     .G_out          (G_vg),
     .B_out          (B_vg)
