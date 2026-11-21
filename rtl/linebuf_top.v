@@ -84,6 +84,15 @@ module linebuf_top (
     // A lines 0, 1, 2, field B lines 0, 2, 3 (first row at group position 0)
     input w43_near,
     input fid_in,               // input field ID (capture clock domain): 1 = odd (upper)
+    // 480p / 640x480 -> 512 rows (with w43, groups of 1 line): 16 rows per 15
+    // input lines, linear interpolation (row j of a group of 15 lines at
+    // input position j*15/16): line g = 1..14 ends row g with weight
+    // (16-g)/16 and starts row g+1 with (g+1)/16; line 0 ends row 15 of the
+    // previous group with 1/16, starts row 1 with 1/16 and is also row 0 by
+    // itself: a second line buffer write of the plain line, one clock after
+    // each unit, into the next row. Reading 512 rows takes about as long as
+    // writing 480 lines: little drift, so the rows can hold 720 pixels.
+    input up16,
     // field B groups start vflt_bofs lines later (0-3): 1 for the 1080i
     // flicker filter (1080p, groups of 2)
     input [1:0] vflt_bofs,
@@ -408,6 +417,9 @@ reg [2:0] ds_gpos;          // line position inside the current group
 reg ds_store;               // per line: write this line to the line buffer
 reg ds_first, ds_inblend;   // per line: first line of the blend window / inside it
 reg w_end, w_start, w_av;   // per line (720p): ends a row / starts one / a row was started on the previous line
+reg w_dual, w_dual_prev;    // per line (up16): also writes the plain line as the next row / the previous line did
+reg [3:0] g16;              // up16: line position in the group of 15
+reg [5:0] ypos_wraddr_b;    // up16: buffer of the plain row
 reg [5:0] w_a, w_b;         // per line (720p): weights of the ended / started row (1/64)
 
 // (registered: they change once per input frame, in the vertical blanking)
@@ -447,7 +459,11 @@ endfunction
 wire [2:0] ds_vdec_e = (ds_vdec == 3'd7) ? 3'd0 : ds_vdec;
 wire [2:0] next_gpos = (ypos_i == grp_start) ? 3'h0 : ((ds_gpos == ds_vdec_e) ? 3'h0 : ds_gpos + 3'h1);
 wire [5:0] lb_num = lbs ? lb_slots : NUM_LINE_BUFFERS;
-wire [13:0] w_next = w43_tab(bob, w43_near, ds_ilace, fld_b, next_gpos[1:0]);
+wire [3:0] next_g16 = (ypos_i == grp_start) ? 4'h0 : ((g16 == 4'd14) ? 4'h0 : g16 + 4'h1);
+// up16 weights: line 0 ends / starts with 1/16 (4/64), line g: (16-g)/16, (g+1)/16
+wire [5:0] u16_a = (next_g16 == 4'h0) ? 6'd4 : (6'd0 - {next_g16, 2'b00});     // 64 - 4g
+wire [5:0] u16_b = {next_g16, 2'b00} + 6'd4;
+wire [13:0] w_next = up16 ? {1'b1, 1'b1, u16_a, u16_b} : w43_tab(bob, w43_near, ds_ilace, fld_b, next_gpos[1:0]);
 
 // stages A/B: horizontal filter
 // (HD converter: average of 2 or 4 ADC samples, or none)
@@ -474,7 +490,7 @@ reg [10:0] x_1;
 reg v_1;
 
 // line buffer base address of the line being written (layout 3)
-reg [12:0] wr_base, wr_base_p;
+reg [12:0] wr_base, wr_base_p, wr_base_b;
 reg [5:0] ypos_wraddr_d;
 
 always @(posedge PCLK_CAP_i) begin
@@ -516,16 +532,18 @@ always @(posedge PCLK_CAP_i) begin
         // downscaler: lines are grouped by (ds_vdec+1) from grp_start; one
         // line per group is written. The first written line goes to buffer 0.
         ds_gpos <= next_gpos;
+        g16 <= next_g16;
 
         if (ypos_i == first_store) begin
             ypos_wraddr <= 0;
             ds_store <= 1'b1;
         end else if ((ypos_i > first_store) && (w43 ? w_next[13] : (next_gpos == st_gpos))) begin
             ds_store <= 1'b1;
-            if (ypos_wraddr == lb_num-1'b1)
+            // (up16: after a line with two rows, the next one follows the second)
+            if ((w_dual ? ypos_wraddr_b : ypos_wraddr) == lb_num-1'b1)
                 ypos_wraddr <= 0;
             else
-                ypos_wraddr <= ypos_wraddr + 1'b1;
+                ypos_wraddr <= (w_dual ? ypos_wraddr_b : ypos_wraddr) + 1'b1;
         end else begin
             ds_store <= 1'b0;
         end
@@ -535,13 +553,18 @@ always @(posedge PCLK_CAP_i) begin
         // 720p: (w_start: still the previous line's)
         {w_end, w_start, w_a, w_b} <= w_next;
         w_av <= w_start & (ypos_i != grp_start);
+        // up16: line 0 of a group that is not the first one: two rows
+        w_dual <= up16 & (next_g16 == 4'h0) & w_start & (ypos_i != grp_start) & (ypos_i > first_store);
     end
+    // (up16: the plain row goes to the buffer after the one being written)
+    ypos_wraddr_b <= (ypos_wraddr == lb_num-1'b1) ? 6'h0 : ypos_wraddr + 1'b1;
     ypos_prev <= ypos_i;
     // (changes during horizontal blanking only, long before the first write)
     // (two registers: the base changes once per line, in the blanking)
     ypos_wraddr_d <= ypos_wraddr;
     wr_base_p <= ypos_wraddr_d * lb_stride;
     wr_base <= wr_base_p;
+    wr_base_b <= (ypos_wraddr_b == 6'h0) ? 13'h0 : wr_base + {3'h0, lb_stride};
 
     // stage B -> 1
     R_1 <= R_h;
@@ -702,14 +725,27 @@ end
 
 wire [31:0] u3_out = blended_3 ? {h0_3, h1_3, h2_3, h3_3} : u3;
 
+// up16: the plain unit again, one clock later, into the next row (units
+// of the 4:2:2 layout come at most every other clock)
+reg [31:0] u4;
+reg [10:0] ua4;
+reg uv4;
 always @(posedge PCLK_CAP_i) begin
+    u4 <= u3;
+    ua4 <= ua3;
+    uv4 <= uv3 & w_dual;
     // U3 -> line buffer write
-    case (lb_layout)
-        2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua3};
-        default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua3};
-    endcase
-    linebuf_wrdata <= lb422 ? u3_out : {8'h0, u3_out[31:8]};
-    linebuf_wren <= uv3;
+    if (~uv3 & uv4) begin
+        linebuf_wraddr_r <= wr_base_b + {2'h0, ua4};
+        linebuf_wrdata <= u4;
+    end else begin
+        case (lb_layout)
+            2'h3: linebuf_wraddr_r <= wr_base + {2'h0, ua3};
+            default: linebuf_wraddr_r <= {1'b0, ypos_wraddr[0], ua3};
+        endcase
+        linebuf_wrdata <= lb422 ? u3_out : {8'h0, u3_out[31:8]};
+    end
+    linebuf_wren <= uv3 | uv4;
 end
 
 end

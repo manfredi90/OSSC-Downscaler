@@ -205,6 +205,11 @@ typedef struct {
     // line count is not a whole number per input frame, so 2200 clocks per
     // line at 74.25MHz are exact
     uint8_t i2p;
+    // HD converter, 480p / 640x480 (with w43, groups of 1 line): 512 rows,
+    // 16 per 15 input lines, linearly interpolated (see linebuf_top): reading
+    // 512 output lines takes about as long as writing 480 input lines, so the
+    // drift is a few rows and the rows can hold every source pixel
+    uint8_t up16;
 } ds_mode_t;
 // output counted as 1080i (1125 lines per two fields)
 #define DS_TILACE(m)        ((m)->ilace || (m)->i2p)
@@ -232,29 +237,31 @@ static const ds_mode_t ds_modes[] = {
      *   field 3/4 L(k) + 1/4 L(k+1), lower 1/4 L(k-1) + 3/4 L(k): no bobbing,
      *   see linebuf_top), the output timing = the input timing (1:1). Also
      *   used with "1080i" output (no 1080i row)
-     *  480p / 640x480: 1 line per output line, 480 rows centered in the 540,
-     *   4:3 pillarboxed or "Wide" (anamorphic 16:9). An input line lasts 1.07
-     *   output lines: ~33 rows of drift, so the rows must be short (720 pixels
-     *   would need ~12000 words). 1080i: both fields show every line.
-     *   Every pixel is the average of exactly 2 source pixels (integer
-     *   ratio: no shimmer on horizontal motion).
-     *   480p: ADC at 2x (1716, 54MHz), 4 samples averaged (360 pixels), 4:3
-     *    4 clocks each (1440: ~12% wider than 4:3), Wide 5 (1800)
-     *   VGA: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6 (1920)
+     *  480p / 640x480: 512 rows (16 per 15 input lines, linear interpolation,
+     *   see linebuf_top: up16), centered in the 540, 4:3 pillarboxed or
+     *   "Wide" (anamorphic 16:9). Reading 512 rows takes about as long as
+     *   writing 480 lines (a few rows of drift), so the rows can hold every
+     *   source pixel; the ADC runs at 2x (1716 / 1600 samples per line) and
+     *   each pixel is the average of 2 samples (or 4 = 2 source pixels), an
+     *   integer ratio: no shimmer on horizontal motion. 1080i: both fields
+     *   show the same rows.
+     *   480p 4:3: 720 pixels x 2 clocks (1440, ~5% wider than 4:3); Wide:
+     *    360 pixels (2 source pixels each) x 5 (1800)
+     *   VGA 4:3: 640 x 2 (1280, ~6% narrower); Wide: 640 x 3 (1920)
      *  (480p / VGA rows: ar43 1 = 4:3 only, 2 = Wide only) */
     { HDMI_1080p60, 1125, 2200, 2200, 1125, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "1080>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
     { HDMI_1080p60, 1125, 2200, 2200, 1125, 1, 0, 3, 0, 0, 0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
     { HDMI_720p60, 750, 2475, 2200, 1125, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "720p>540p", 0, 0, 0, 1, 0, 0, 0, 0, 2475, 0, 1, 0, 1, 1 },
     { HDMI_720p60, 750, 2475, 2200, 1125, 3, 0, 3, 0, 0, 0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 2475, 0, 1, 0, 1 },
     { HDMI_1080i60, 1125, 2200, 2200, 1125, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
-    { HDMI_480p60, 525, 429, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 2, 0, 0, 0, "480p>540p", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1, 1 },
-    { HDMI_480p60, 525, 429, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1 },
-    { HDMI_480p60, 525, 429, 2200, 1125, 0, 4, 3, 0, 0, 0, 2, 2, 0, 0, 0, "480p>540p", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1, 1 },
-    { HDMI_480p60, 525, 429, 2200, 1125, 0, 4, 3, 0, 0, 0, 2, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1 },
-    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 1, 0, 0, 0, "VGA>540p", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1, 1 },
-    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 1, 1, 0, 1, "VGA>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1 },
-    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 5, 3, 0, 0, 0, 2, 1, 0, 0, 0, "VGA>540p", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1, 1 },
-    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 5, 3, 0, 0, 0, 2, 1, 1, 0, 1, "VGA>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1 },
+    { HDMI_480p60,      525,  858, 2200,1125, 0, 1, 3,  0, 0,   0, 1, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 512,   1716, 667, 1, 0, 1, 1, 1 },
+    { HDMI_480p60,      525,  858, 2200,1125, 0, 1, 3,  0, 0,   0, 1, 1, 1, 0, 0, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 512,   1716, 667, 1, 0, 1, 0, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 512,   1716, 667, 1, 0, 1, 1, 1 },
+    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 1, 0, 0, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 512,   1716, 667, 1, 0, 1, 0, 1 },
+    { HDMI_640x480p60,  525,  800, 2200,1125, 0, 1, 3,  0, 0,   0, 1, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 512,   1600, 667, 1, 0, 1, 1, 1 },
+    { HDMI_640x480p60,  525,  800, 2200,1125, 0, 1, 3,  0, 0,   0, 1, 1, 1, 0, 0, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 512,   1600, 667, 1, 0, 1, 0, 1 },
+    { HDMI_640x480p60,  525,  800, 2200,1125, 0, 2, 3,  0, 0,   0, 2, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 512,   1600, 667, 1, 0, 1, 1, 1 },
+    { HDMI_640x480p60,  525,  800, 2200,1125, 0, 2, 3,  0, 0,   0, 2, 1, 1, 0, 0, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 512,   1600, 667, 1, 0, 1, 0, 1 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
@@ -576,6 +583,12 @@ static void ds_field_lines(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_i
         *n_a = *n_b = 1;
         return;
     }
+    if (m->up16) {
+        // 480p -> 512 rows (see linebuf_top): first row at line 0
+        *st_a = *st_b = 0;
+        *n_a = *n_b = 1;
+        return;
+    }
     if (m->w43) {
         // 720p (see linebuf_top): the first row of a group is written at line
         // 1 (540p, 1080i field B) or 0 (field A); line blending off (nearest
@@ -705,6 +718,8 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                 uint32_t m = num*k, nd = den*k, sol = 0;
                 if (m < 50)
                     continue;
+                // (of the valid N for this M, the lowest VCO frequency)
+                uint32_t best_vco = 0xffffffff;
                 for (n=1; n<=64; n++) {
                     uint32_t c, pfd, vco, out;
                     if (nd % n)
@@ -714,7 +729,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     vco = (fin_khz*m)/n;
                     out = vco/c;
                     if ((c > 510) || (pfd < DS_PLL_PFD_MIN_KHZ) || (pfd > 10000) || (vco < DS_PLL_VCO_MIN_KHZ) || (vco > DS_PLL_VCO_MAX_KHZ) ||
-                        (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ))
+                        (out < 25000) || (out > DS_PLL_OUT_MAX_KHZ) || (vco >= best_vco))
                         continue;
                     // the line buffer must absorb the read/write drift of this line rate
                     memcpy(&cand, row, sizeof(ds_mode_t));
@@ -728,9 +743,9 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
                     *m_o = m;
                     *c_o = c;
                     best_err = err;
+                    best_vco = vco;
                     found = 1;
                     sol = 1;
-                    break;
                 }
                 if (sol)
                     break;
@@ -757,6 +772,13 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
 // line blending off, the nearest lines: 540p 0, 1, 3; A 0, 1, 2; B 0, 2, 3)
 static int64_t ds_row_line(const ds_mode_t *m, avconfig_t *cc, int f, int64_t st, int64_t r) {
 #ifdef DS_HD
+    if (m->up16) {
+        // 480p -> 512 rows: row j of a group (16 rows, 15 lines) is written at
+        // line j (row 0, the plain line 0, at line 0 too, after row 15 of
+        // the previous group)
+        (void)f; (void)st;
+        return 15*(r/16) + (r%16);
+    }
     if (m->w43 && !m->bob) {
         static const uint8_t e[2][3][3] = {{{1, 2, 3}, {0, 1, 3}, {1, 2, 3}},
                                            {{0, 1, 3}, {0, 1, 2}, {0, 2, 3}}};
@@ -813,9 +835,11 @@ static void ds_t0_window(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
         int64_t st = f ? st_b : st_a;
         int64_t ofs = f ? ((m->bob ? -u_iline/2 : 0) + (DS_TILACE(m) ? u_oline/2 : 0)) : 0;
         int w43r = m->w43 && !m->bob;
-        int nr = w43r ? 6 : 2;
+        // (480p -> 512 rows: linear in r for each row of the group of 16)
+        int rg = m->up16 ? 16 : (w43r ? 3 : 1);
+        int nr = 2*rg;
         for (i=0; i<nr; i++) {
-            int64_t r = w43r ? ((i < 3) ? i : (k-6+i)) : (i ? (k-1) : 0);
+            int64_t r = (i < rg) ? i : (k-2*rg+i);
             int64_t l = (y0 + ds_row_line(m, cc, f, st, r) + p)*u_iline + off_in*u_ipx - r*u_oline - off_out*u_oc + eps - ofs;
             int64_t h = (y0 + ds_row_line(m, cc, f, st, r+d) + p)*u_iline + (off_in+w-1)*u_ipx - r*u_oline - (off_out + (int64_t)rpt*(w-1))*u_oc - eps - ofs;
             if (l > lo) lo = l;
@@ -1129,7 +1153,8 @@ static int setup_ds_mode(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in,
     vm_conf->ds_hfilt = m->hfilt;
     vm_conf->ds_w43 = m->w43;
     vm_conf->ds_bob = m->bob;
-    vm_conf->ds_w43_near = m->w43 && !m->bob && cc->ds_vblend_off;
+    vm_conf->ds_w43_near = m->w43 && !m->bob && !m->up16 && cc->ds_vblend_off;
+    vm_conf->ds_up16 = m->up16;
     // groups of 1 line: register value 7 (0 = stock line buffer mode)
     vm_conf->ds_vdec = m->vdec ? m->vdec : 7;
     vm_conf->ds_lb_layout = m->lb_layout;
