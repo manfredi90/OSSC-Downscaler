@@ -100,8 +100,8 @@ int ds_settings_load() {
     // test pattern design: not kept, Gray at start
     tc.ds_tp_sel = 0;
 #ifdef DS_HD
-    // HD converter: ds_720p_ar = 480p format (4:3 / Wide), ds_i2p = 480p
-    // sampling (Stable / Sharp), flicker Off / On
+    // HD converter: ds_720p_ar = 480p format (4:3 / Wide), ds_i2p unused
+    // (was: 480p sampling), flicker Off / On
     if (tc.ds_720p_ar > 1)
         tc.ds_720p_ar = 0;
     if (tc.ds_i2p > 1)

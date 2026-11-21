@@ -200,8 +200,6 @@ typedef struct {
     // HD converter: standard 1080i line timing (2200 clocks per line,
     // 74.25MHz / 74.18MHz, DE on the 1920x540 window); all HD rows
     uint8_t std;
-    // 480p / VGA rows: "480p sampling" Sharp (otherwise Stable)
-    uint8_t sharp;
     // 540p on the 1080i line timing (fields of 563 and 562 lines, both
     // vsyncs at a line start: 562.5 lines per frame, as 1080i): the output
     // line count is not a whole number per input frame, so 2200 clocks per
@@ -211,10 +209,6 @@ typedef struct {
 // output counted as 1080i (1125 lines per two fields)
 #define DS_TILACE(m)        ((m)->ilace || (m)->i2p)
 
-#ifndef P4_ADC
-#define P4_ADC 1110
-#define VG_ADC 1166
-#endif
 static const ds_mode_t ds_modes[] = {
 #ifdef DS_HD
     /* HD converter: every mode on the standard 1080i line timing (CEA-861
@@ -242,35 +236,25 @@ static const ds_mode_t ds_modes[] = {
      *   4:3 pillarboxed or "Wide" (anamorphic 16:9). An input line lasts 1.07
      *   output lines: ~33 rows of drift, so the rows must be short (720 pixels
      *   would need ~12000 words). 1080i: both fields show every line.
-     *   480p Stable: ADC at 2x (1716, 54MHz), 4 samples averaged = 2 source
-     *    pixels (360 pixels, no shimmer), 4:3 4 clocks each (1440: ~12% wider
-     *    than 4:3), Wide 5 (1800)
-     *   480p Sharp: ADC 1000 / 1100 per line, 2 averaged, 418 x 3 clocks (4:3)
-     *    / 460 x 4 (Wide) (not an integer ratio: fine detail shimmers)
-     *   VGA Stable: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6
-     *    (1920); Sharp: ADC 1100, 2 averaged, 440 x 3 (4:3) / 4 (Wide)
+     *   Every pixel is the average of exactly 2 source pixels (integer
+     *   ratio: no shimmer on horizontal motion).
+     *   480p: ADC at 2x (1716, 54MHz), 4 samples averaged (360 pixels), 4:3
+     *    4 clocks each (1440: ~12% wider than 4:3), Wide 5 (1800)
+     *   VGA: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6 (1920)
      *  (480p / VGA rows: ar43 1 = 4:3 only, 2 = Wide only) */
-    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1, 0, 1 },
-    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1 },
-    { HDMI_720p60,      750, 2475, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0,   0,   2475,   0, 1, 0, 1, 0, 1 },
-    { HDMI_720p60,      750, 2475, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0,   0,   2475,   0, 1, 0, 1 },
-    { HDMI_1080i60,    1125, 2200, 2200,1125, 0, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 1, 1, 1, 0, 1 },
-    { HDMI_480p60,      525,  429, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 2, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1, 0, 1 },
-    { HDMI_480p60,      525,  429, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1 },
-    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1, 0, 1 },
-    { HDMI_480p60,      525,  429, 2200,1125, 0, 4, 3,  0, 0,   0, 2, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1716, 667, 0, 0, 1 },
-    { HDMI_480p60,      525,  500, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1000, 667, 0, 0, 1, 1, 1 },
-    { HDMI_480p60,      525,  500, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1000, 667, 0, 0, 1, 1 },
-    { HDMI_480p60,      525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
-    { HDMI_480p60,      525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
-    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1, 0, 1 },
-    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 3, 3,  0, 0,   0, 1, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1 },
-    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 5, 3,  0, 0,   0, 2, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1, 0, 1 },
-    { HDMI_640x480p60,  525,  400, 2200,1125, 0, 5, 3,  0, 0,   0, 2, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,      0, 667, 0, 0, 1 },
-    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
-    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 2, 3,  0, 0,   0, 1, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
-    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1, 1 },
-    { HDMI_640x480p60,  525,  550, 2200,1125, 0, 3, 3,  0, 0,   0, 2, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480,   1100, 667, 0, 0, 1, 1 },
+    { HDMI_1080p60, 1125, 2200, 2200, 1125, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "1080>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
+    { HDMI_1080p60, 1125, 2200, 2200, 1125, 1, 0, 3, 0, 0, 0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+    { HDMI_720p60, 750, 2475, 2200, 1125, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "720p>540p", 0, 0, 0, 1, 0, 0, 0, 0, 2475, 0, 1, 0, 1, 1 },
+    { HDMI_720p60, 750, 2475, 2200, 1125, 3, 0, 3, 0, 0, 0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 2475, 0, 1, 0, 1 },
+    { HDMI_1080i60, 1125, 2200, 2200, 1125, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+    { HDMI_480p60, 525, 429, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 2, 0, 0, 0, "480p>540p", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1, 1 },
+    { HDMI_480p60, 525, 429, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1 },
+    { HDMI_480p60, 525, 429, 2200, 1125, 0, 4, 3, 0, 0, 0, 2, 2, 0, 0, 0, "480p>540p", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1, 1 },
+    { HDMI_480p60, 525, 429, 2200, 1125, 0, 4, 3, 0, 0, 0, 2, 2, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 1716, 667, 0, 0, 1 },
+    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 1, 0, 0, 0, "VGA>540p", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1, 1 },
+    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 3, 3, 0, 0, 0, 1, 1, 1, 0, 1, "VGA>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1 },
+    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 5, 3, 0, 0, 0, 2, 1, 0, 0, 0, "VGA>540p", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1, 1 },
+    { HDMI_640x480p60, 525, 400, 2200, 1125, 0, 5, 3, 0, 0, 0, 2, 1, 1, 0, 1, "VGA>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667, 0, 0, 1 },
 #else
     // 720p60: 655x750 -> 1875x262 (2.86 input lines per output line)
     /* ---- 240p output (262 lines) ---- */
@@ -453,18 +437,14 @@ static int ds_hd_vic(HDMI_Video_Type vic) {
     return (vic == HDMI_720p60) || (vic == HDMI_1080p60);
 }
 
-// HD converter, 480p / VGA rows: "480p sampling" (ds_i2p) 0 = Stable (ADC at
-// the source pixel clock, adc_h_total 0), 1 = Sharp (ADC at P4_ADC / VG_ADC).
-// Interlaced sources: the 1080i row (bob) only.
+// Interlaced sources: the 1080i row (bob) only. HD converter, 480p / VGA:
+// one row per "480p format".
 static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in) {
     if (!!m->bob != !!vm_in->timings.interlaced)
         return 0;
 #ifdef DS_HD
-    // Standard 480p / VGA rows: one per "480p format"
     if (m->ar43 && (m->ar43 != (cc->ds_720p_ar ? 2 : 1)))
         return 0;
-    if (m->width_pm)
-        return m->sharp == (cc->ds_i2p != 0);
 #endif
     return 1;
 }
@@ -1643,7 +1623,7 @@ int get_pure_lm_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_out, vm
     // line timing (fields of 263 and 262 lines, frame locked like the
     // passthrough) but both vsyncs start at a line start, so that both fields
     // land on the same scanlines.
-#ifndef DS_HD   // (HD converter: ds_i2p is the 480p sampling)
+#ifndef DS_HD   // (HD converter: no 15kHz input handling)
     if ((mindiff_lm == MODE_PT) && vm_in->timings.interlaced && cc->ds_i2p &&
         ((mode_preset->group == GROUP_480I) || (mode_preset->group == GROUP_576I)))
         vm_conf->ds_i2p = 1;

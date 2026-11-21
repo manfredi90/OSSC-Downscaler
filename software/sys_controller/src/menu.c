@@ -102,7 +102,6 @@ static const char* const palset_type_arr[] = { "Custom .txt", "NES .pal" };
 // HD converter: "Serrated" = broad pulses every half line, no equalizing pulses
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Serrated" };
 static const char* const ds_480p_fmt_desc[] = { "4:3", "Wide 16:9" };
-static const char* const ds_480p_smp_desc[] = { "Stable", "Sharp" };
 #else
 static const char* const ds_csync_desc[] = { "Off (H+V)", "XOR", "AND", "Standard" };
 #endif
@@ -293,10 +292,9 @@ MENU(menu_downscaler, P99_PROTECT({ \
     { "HDMI range",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_out_range, OPT_WRAP,   SETTING_ITEM(ds_range_desc) } } },
 #ifdef DS_HD
     // HD converter: no 15kHz-specific options, 1080i flicker filter Off / On;
-    // ds_720p_ar = 480p format, ds_i2p = 480p sampling
+    // ds_720p_ar = 480p format
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
     { "480p format",                            OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_720p_ar,   OPT_WRAP,   SETTING_ITEM(ds_480p_fmt_desc) } } },
-    { "480p sampling",                          OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_i2p,       OPT_WRAP,   SETTING_ITEM(ds_480p_smp_desc) } } },
     { "Flicker filter",                         OPT_AVCONFIG_SELECTION, { .sel = { &tc.ds_flicker,   OPT_WRAP,   SETTING_ITEM(off_on_desc) } } },
 #else
     { "480p input",                             OPT_AVCONFIG_SELECTION, { .sel = { &tc.s480p_mode,    OPT_WRAP,   SETTING_ITEM(ds_480p_in_desc) } } },
