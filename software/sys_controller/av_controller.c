@@ -76,7 +76,7 @@ alt_u8 update_cur_vm;
 // screen") is output instead of the input video
 alt_u8 ds_safe_screen;
 #ifdef DS_HD
-static alt_u8 ds_tp_timing, ds_tp_480i;     // test pattern drawn with these
+static alt_u8 ds_tp_480i;     // test pattern drawn with this "Output mode"
 #endif
 
 // Default settings
@@ -478,7 +478,7 @@ status_t get_status(tvp_sync_input_t syncinput)
             (tc.ds_hpos != cm.cc.ds_hpos) || (tc.ds_vpos != cm.cc.ds_vpos) ||
             (tc.ds_native != cm.cc.ds_native) || (tc.ds_width != cm.cc.ds_width) ||
             (tc.ds_fixlines != cm.cc.ds_fixlines) ||
-            (tc.ds_i2p != cm.cc.ds_i2p) || (tc.ds_flicker != cm.cc.ds_flicker) || (tc.ds_timing != cm.cc.ds_timing))
+            (tc.ds_i2p != cm.cc.ds_i2p) || (tc.ds_flicker != cm.cc.ds_flicker))
             status = (status < MODE_CHANGE) ? MODE_CHANGE : status;
 
         cm.totlines = totlines;
@@ -778,8 +778,7 @@ void show_safe_screen(const char *reason)
 
     ds_pll_active = 0;
 #ifdef DS_HD
-    // the test pattern timing follows "Output timing" / "Output mode"
-    ds_tp_timing = cm.cc.ds_timing = tc.ds_timing;
+    // the test pattern timing follows "Output mode"
     ds_tp_480i = cm.cc.ds_480i = tc.ds_480i;
 #endif
     get_testpattern_mode(&cm.cc, &vmode_in, &vmode_out, &vm_conf);
@@ -1591,9 +1590,8 @@ int main(int argc, char **argv, char **envp)
         }
 
 #ifdef DS_HD
-        // test pattern shown: redraw it when "Output timing" / "Output mode"
-        // change
-        if (ds_safe_screen && ((tc.ds_timing != ds_tp_timing) || (tc.ds_480i != ds_tp_480i))) {
+        // test pattern shown: redraw it when "Output mode" changes
+        if (ds_safe_screen && (tc.ds_480i != ds_tp_480i)) {
             char r[LCD_ROW_LEN+1];
             strncpy(r, (cm.avinput == AV_TESTPAT) ? "" : row2, LCD_ROW_LEN+1);
             r[LCD_ROW_LEN] = 0;

@@ -197,9 +197,8 @@ typedef struct {
     // HD converter, 1080i input: every field becomes one progressive frame
     // (with w43: 2-line weights per field, see linebuf_top)
     uint8_t bob;
-    // HD converter "Output timing": 0 = "Source pixels" row (line length
-    // chosen for the "Width"), 1 = "Standard" row (2200 clocks per line,
-    // 74.25MHz / 74.18MHz)
+    // HD converter: standard 1080i line timing (2200 clocks per line,
+    // 74.25MHz / 74.18MHz, DE on the 1920x540 window); all HD rows
     uint8_t std;
     // 480p / VGA rows: "480p sampling" Sharp (otherwise Stable)
     uint8_t sharp;
@@ -218,66 +217,39 @@ typedef struct {
 #endif
 static const ds_mode_t ds_modes[] = {
 #ifdef DS_HD
-    // HD converter: 1080p60 -> 540p (562 lines, 33.7kHz) / 1080i (1125
-    // lines, one field per input frame, 33.75kHz). 2 lines per output line:
-    // 540p = the 2 lines averaged (or line 0 without line blending); 1080i:
-    // field A = line 0, field B = line 1 of each pair. All 1920 pixels
-    // (148.5MHz), 1 clock per pixel (74.25MHz), YCbCr 4:2:2 (960 words, 8
-    // line buffer rows; the blend accumulator holds 1024 pixel pairs).
-    { HDMI_1080p60,    1125, 2200, 2200, 562, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1 },
-    { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1 },
-    // 720p60 -> 540p / 1080i: groups of 4 lines, 3 rows each, weighted (540p:
-    // area weights; 1080i: linear interpolation, the two fields 2/3 of an
-    // input line apart). 720 input lines and 540 output rows take the same
-    // time (16.0ms): almost no read/write drift. All 1280 pixels (74.25MHz),
-    // 1 clock per pixel (~49.5MHz), YCbCr 4:2:2 (640 words).
-    { HDMI_720p60,      750, 1650, 2200, 562, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
-    { HDMI_720p60,      750, 1650, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 1, 0, 1, "720p>1080i", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1 },
-    // 1080i60 -> 540p: every field (540 lines) becomes one 540p frame, rows
-    // of 1 line interpolated so that both fields land on the same output
-    // lines (upper field 3/4 L(k) + 1/4 L(k+1), lower 1/4 L(k-1) + 3/4 L(k):
-    // no up/down bobbing, see linebuf_top). The 562-line output frames are
-    // exactly one field long (2 per input frame of 1125 lines); the output is
-    // resynced at the upper field. All 1920 pixels (74.25MHz), 1 clock per
-    // pixel, YCbCr 4:2:2. Also used with "1080i" output (no 1080i row).
-    { HDMI_1080i60,    1125, 2200, 2200, 562, 0, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080i>540p", 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1 },
-    // 480p / 640x480: 1 line per output line (groups of 1: vdec 0, register
-    // value 7), 480 rows centered in the 540 (30 black lines above and
-    // below), 4:3 pillarboxed (2/3 of the 16:9 width) or "Wide" (anamorphic
-    // 16:9, full width). An input line lasts 1.07 output lines: ~33 rows of
-    // drift, so the rows must be short (720 pixels would need ~12000 words):
-    //  "480p sampling" Sharp: the ADC at P4_ADC / VG_ADC samples per line, 2
-    //   averaged, 464 / 466 pixels (not an integer ratio: fine detail
-    //   shimmers when it moves);
-    //  "480p sampling" Stable: the ADC at the source pixel clock (858 / 800),
-    //   pixel pairs averaged, exactly 360 / 320 pixels (2:1, no shimmer).
-    // 2 clocks per pixel. 1080i: both fields show every line (480 rows each).
-    { HDMI_480p60,      525,      429, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
-    { HDMI_480p60,      525,      429, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
-    { HDMI_640x480p60,  525,      400, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
-    { HDMI_640x480p60,  525,      400, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, 0, 667 },
-    { HDMI_480p60,      525, P4_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "480p>540p",  0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667, 0, 0, 0, 1 },
-    { HDMI_480p60,      525, P4_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "480p>1080i", 0, 0, 0, 1, 0, 0, 0, 480, P4_ADC, 667, 0, 0, 0, 1 },
-    { HDMI_640x480p60,  525, VG_ADC/2, 2200, 562, 0, 1, 3,  0, 0,   0, 0, 1, 0, 0, 0, "VGA>540p",   0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667, 0, 0, 0, 1 },
-    { HDMI_640x480p60,  525, VG_ADC/2, 2200,1125, 0, 1, 3,  0, 0,   0, 0, 1, 1, 0, 1, "VGA>1080i",  0, 0, 0, 1, 0, 0, 0, 480, VG_ADC, 667, 0, 0, 0, 1 },
-
-    /* ---- "Output timing" Standard: 2200 clocks per line, 1125 lines per
-     * two output frames (1080i, or 540p as fields of 563 + 562 lines),
-     * 74.25MHz at 60Hz, 74.18MHz at 59.94Hz, for displays and HDMI-component
-     * transcoders that only take the standard 1080i timing. The ADC rate is
+    /* HD converter: every mode on the standard 1080i line timing (CEA-861
+     * 1920x1080i): 2200 clocks per line, 1125 lines per two output frames
+     * (1080i, or 540p as fields of 563 + 562 lines with both vsyncs at a line
+     * start), 74.25MHz at 60Hz, 74.18MHz at 59.94Hz; the HDMI DE always covers
+     * the 1920x540 window (black around smaller pictures). The ADC rate is
      * chosen so that the output clock is an exact PLL ratio of it and the
      * stored pixels fill the picture width with a whole number of clocks:
-     *  1080p: as above (1920 pixels, 1 clock each)
-     *  720p: ADC at 1.5x (2475 samples per line, 111.4MHz), 1920 pixels
-     *  1080i: the input timing itself (1:1)
-     *  480p Stable: ADC at 2x (1716, 54MHz), 4 samples averaged = 2 source
-     *   pixels (360 pixels, 2:1 as "Source pixels"), 4:3 4 clocks each
-     *   (1440: ~12% wider than 4:3), Wide 5 (1800)
-     *  480p Sharp: ADC 1000 / 1100 per line, 2 averaged, 418 x 3 clocks
-     *   (4:3) / 460 x 4 (Wide)
-     *  VGA Stable: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6
-     *   (1920); Sharp: ADC 1100, 2 averaged, 440 x 3 (4:3) / 4 (Wide)
-     * (480p / VGA rows: ar43 1 = 4:3 only, 2 = Wide only) */
+     *  1080p: 2 lines per output line (540p: the 2 lines averaged, or line 0
+     *   without line blending; 1080i: field A = line 0, field B = line 1),
+     *   all 1920 pixels (148.5MHz), 1 clock each; YCbCr 4:2:2 (960 words, 8
+     *   line buffer rows; the blend accumulator holds 1024 pixel pairs)
+     *  720p: groups of 4 lines, 3 rows each, weighted (540p: area weights;
+     *   1080i: linear interpolation, the two fields 2/3 of an input line
+     *   apart); 720 input lines and 540 output rows take the same time (almost
+     *   no read/write drift). ADC at 1.5x (2475 samples per line, 111.4MHz),
+     *   1920 pixels
+     *  1080i: every field (540 lines) becomes one 540p frame, rows of 1 line
+     *   interpolated so that both fields land on the same output lines (upper
+     *   field 3/4 L(k) + 1/4 L(k+1), lower 1/4 L(k-1) + 3/4 L(k): no bobbing,
+     *   see linebuf_top), the output timing = the input timing (1:1). Also
+     *   used with "1080i" output (no 1080i row)
+     *  480p / 640x480: 1 line per output line, 480 rows centered in the 540,
+     *   4:3 pillarboxed or "Wide" (anamorphic 16:9). An input line lasts 1.07
+     *   output lines: ~33 rows of drift, so the rows must be short (720 pixels
+     *   would need ~12000 words). 1080i: both fields show every line.
+     *   480p Stable: ADC at 2x (1716, 54MHz), 4 samples averaged = 2 source
+     *    pixels (360 pixels, no shimmer), 4:3 4 clocks each (1440: ~12% wider
+     *    than 4:3), Wide 5 (1800)
+     *   480p Sharp: ADC 1000 / 1100 per line, 2 averaged, 418 x 3 clocks (4:3)
+     *    / 460 x 4 (Wide) (not an integer ratio: fine detail shimmers)
+     *   VGA Stable: pixel pairs (320 pixels), 4:3 4 clocks (1280), Wide 6
+     *    (1920); Sharp: ADC 1100, 2 averaged, 440 x 3 (4:3) / 4 (Wide)
+     *  (480p / VGA rows: ar43 1 = 4:3 only, 2 = Wide only) */
     { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "1080>540p",  0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1, 0, 1 },
     { HDMI_1080p60,    1125, 2200, 2200,1125, 1, 0, 3,  0, 0,   0, 0, 0, 1, 1, 1, "1080>1080i", 0, 0, 0, 1, 0, 0, 0,   0,      0,   0, 0, 0, 1 },
     { HDMI_720p60,      750, 2475, 2200,1125, 3, 0, 3,  0, 0,   0, 0, 0, 0, 0, 0, "720p>540p",  0, 0, 0, 1, 0, 0, 0,   0,   2475,   0, 1, 0, 1, 0, 1 },
@@ -488,9 +460,6 @@ static int ds_sampling_ok(const ds_mode_t *m, avconfig_t *cc, mode_data_t *vm_in
     if (!!m->bob != !!vm_in->timings.interlaced)
         return 0;
 #ifdef DS_HD
-    // "Output timing": Standard (0) / Source pixels (1) rows
-    if (m->std != !cc->ds_timing)
-        return 0;
     // Standard 480p / VGA rows: one per "480p format"
     if (m->ar43 && (m->ar43 != (cc->ds_720p_ar ? 2 : 1)))
         return 0;
@@ -728,7 +697,7 @@ static int ds_pll_solve(const ds_mode_t *row, avconfig_t *cc, mode_data_t *vm_in
     if (oh_max > DS_OUT_H_TOTAL_MAX)
         oh_max = DS_OUT_H_TOTAL_MAX;
 #ifdef DS_HD
-    // "Output timing" Standard: 2200 clocks per line only
+    // standard 1080i line timing: 2200 clocks per line only
     if (row->std) {
         if ((oh_min > 2200) || (oh_max < 2200))
             return -1;
@@ -1702,8 +1671,8 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
     memset(vm_in, 0, sizeof(mode_data_t));
 
 #ifdef DS_HD
-    // HD converter: 540p test pattern (1080i line timing, 2200 x 562 at
-    // 74.25MHz = 27MHz * 99 / (3 * 12), see show_safe_screen)
+    // HD converter: 1920x540 test pattern, 2200 clocks per line at 74.25MHz
+    // = 27MHz * 99 / (3 * 12), see show_safe_screen
     for (i=0; i<num_video_modes_plm; i++) {
         if (video_modes_plm_default[i].vic == HDMI_1080i60)
             break;
@@ -1711,21 +1680,14 @@ void get_testpattern_mode(avconfig_t *cc, mode_data_t *vm_in, mode_data_t *vm_ou
     memcpy(vm_out, &video_modes_plm_default[i], sizeof(mode_data_t));
     vm_out->ar.h = 16;
     vm_out->ar.v = 9;
-    if (!cc->ds_timing) {
-        // "Output timing" Standard: 1125 lines (60Hz): 1080i with "Output
-        // mode" 1080i (both fields show the 540 lines), otherwise 540p on
-        // the 1080i timing (fields of 563 + 562 lines, both vsyncs at a
-        // line start)
-        vm_out->timings.v_total = 1125;
-        vm_out->timings.interlaced = 1;
-        vm_out->vic = cc->ds_480i ? HDMI_1080i60 : HDMI_Unknown;
-        vm_conf->ds_i2p = !cc->ds_480i;
-        vm_conf->ds_stdde = 1;
-    } else {
-        vm_out->timings.v_total = 562;
-        vm_out->timings.interlaced = 0;
-        vm_out->vic = HDMI_Unknown;
-    }
+    // standard 1080i line timing, 1125 lines (60Hz): 1080i with "Output
+    // mode" 1080i (both fields show the 540 lines), otherwise 540p on the
+    // 1080i timing (fields of 563 + 562 lines, both vsyncs at a line start)
+    vm_out->timings.v_total = 1125;
+    vm_out->timings.interlaced = 1;
+    vm_out->vic = cc->ds_480i ? HDMI_1080i60 : HDMI_Unknown;
+    vm_conf->ds_i2p = !cc->ds_480i;
+    vm_conf->ds_stdde = 1;
 #else
     for (i=0; i<num_video_modes_plm; i++) {
         if (video_modes_plm_default[i].vic == HDMI_240p60)

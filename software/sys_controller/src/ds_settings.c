@@ -108,8 +108,6 @@ int ds_settings_load() {
         tc.ds_i2p = 0;
     if (tc.ds_flicker > 1)
         tc.ds_flicker = 1;
-    if (tc.ds_timing > 1)
-        tc.ds_timing = 0;
 #endif
     // HDMI range: new in v4 (the byte held the old sampling phase)
     if ((blob.version < 4) || (tc.ds_out_range > 2))
